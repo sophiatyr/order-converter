@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF 訂單轉 Excel P/I 與工廠採購單生成系統</title>
+    <meta name="description" content="智能解析外貿客戶 PDF 訂單（如 Cisalfa Sport），自動按對照表邏輯生成英文 Proforma Invoice (S/C) 與工廠中文採購單 Excel 檔，支援單款單色與單款多色尺寸配比彙整。" />
+    <meta property="og:title" content="PDF 訂單轉 Excel P/I 與工廠採購單生成系統" />
+    <meta property="og:description" content="智能解析外貿客戶 PDF 訂單（如 Cisalfa Sport），自動按對照表邏輯生成英文 Proforma Invoice (S/C) 與工廠中文採購單 Excel 檔，支援單款單色與單款多色尺寸配比彙整。" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="成衣訂單單機版" />
+    <script>
+      if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js').catch((err) => {
+            console.log('ServiceWorker registration note: ', err);
+          });
+        });
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // 離線檔案直接點擊防護：若以 file:/// 開啟且受瀏覽器模組安全性阻擋，自動引導
+      if (window.location.protocol === 'file:') {
+        window.addEventListener('DOMContentLoaded', function() {
+          setTimeout(function() {
+            var rootEl = document.getElementById('root');
+            if (!rootEl || rootEl.children.length === 0) {
+              var notice = document.createElement('div');
+              notice.style.cssText = 'position:fixed;inset:0;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:20px;z-index:999999;';
+              notice.innerHTML = [
+                '<div style="background:#1e293b;border:1px solid #334155;border-radius:16px;padding:32px;max-width:540px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.5);text-align:center;">',
+                '  <h2 style="color:#38bdf8;margin-top:0;font-size:20px;">📦 外貿成衣訂單轉換系統 - 單機版</h2>',
+                '  <p style="color:#cbd5e1;font-size:14px;line-height:1.6;margin:16px 0;">瀏覽器安全性限制（CORS）阻擋了直接開啟 index.html 的腳本載入。</p>',
+                '  <div style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:16px;margin:20px 0;text-align:left;font-size:13px;line-height:1.8;">',
+                '    <div style="color:#10b981;font-weight:bold;margin-bottom:6px;">請改用以下兩種方式直接開啟（100% 成功）：</div>',
+                '    <div>1. 雙擊資料夾內的 <strong>「單機版_直接點開免安裝.html」</strong>（推薦！直接雙擊秒開）</div>',
+                '    <div>2. 雙擊資料夾內的 <strong>「點我啟動系統_Windows.bat」</strong>（自動啟動本機服務）</div>',
+                '  </div>',
+                '  <a href="./單機版_直接點開免安裝.html" style="display:inline-block;background:#0284c7;color:white;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:14px;">點此切換至「單機版_直接點開免安裝.html」 ➔</a>',
+                '</div>'
+              ].join('');
+              document.body.appendChild(notice);
+            }
+          }, 800);
+        });
+      }
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

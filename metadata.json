@@ -1,0 +1,6 @@
+{
+  "name": "PDF 訂單轉 Excel P/I 與工廠採購單生成系統",
+  "description": "智能解析外貿客戶 PDF 訂單（如 Cisalfa Sport），自動按對照表邏輯生成英文 Proforma Invoice (S/C) 與工廠中文採購單 Excel 檔，支援單款單色與單款多色尺寸配比彙整。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
