@@ -198,10 +198,10 @@ export const HeaderNav: React.FC<Props> = ({
             {/* 打包離線檔給同事使用 (ZIP) */}
             <button
               type="button"
-              onClick={handleDownloadPack}
+              onClick={onOpenStandaloneInfo}
               disabled={isDownloading}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 border border-indigo-400/40 text-xs font-bold text-white transition-all shadow-sm active:scale-95"
-              title="下載完整離線包 (1.1 MB ZIP)，內含免安裝雙擊即開網頁、雙擊啟動程式與離線說明"
+              title="查看新版 PDF／OCR 本機版的啟動方式與使用說明"
             >
               {isDownloading ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-200" />
@@ -209,9 +209,9 @@ export const HeaderNav: React.FC<Props> = ({
                 <Package className="w-3.5 h-3.5 text-indigo-200" />
               )}
               <span className="hidden lg:inline">{isDownloading ? '下載中...' : '打包'}</span>
-              <span>同事離線包</span>
+              <span>本機使用說明</span>
               <span className="hidden xl:inline text-[10px] bg-indigo-800/80 text-indigo-200 px-1 py-0.2 rounded font-mono">
-                1.1MB
+                8888
               </span>
             </button>
 

@@ -10,6 +10,11 @@ export interface Colorway {
 }
 
 export interface OrderItem {
+  erpQuoteKey?: string;
+  factoryProduct?: {supplier:string; supplierCode:string; currency:'RMB'|'USD'; price:number; unit:string; quoteDate:string};
+  vendorPart?: string;
+  customerItemCodes?: string[];
+  orderMultipleBySize?: Record<string, number>;
   id: string;
   itemNo: string; // e.g. "AFB831W26", "RCL010", or "ABCRM1039S26"
   styleName: string; // e.g. "TSHIRT ARENA B" or "T-SHIRT ABC RUN SS"
@@ -19,6 +24,7 @@ export interface OrderItem {
   sizes: string[]; // e.g. ["6A", "8A", "10A", "12A", "14A"] or ["XS", "S", "M", "L", "XL"]
   unitPriceUSD: number; // e.g. 2.30 (or piece price $2.10)
   unitPriceRMB: number; // e.g. 13.50
+  factoryUnitPriceUSD?: number;
   colors: Colorway[];
   totalQuantity: number; // total garment pieces
   totalAmountUSD: number;
@@ -44,6 +50,25 @@ export interface BankInfo {
 }
 
 export interface OrderData {
+  corrections?: {id:string;date:string;itemId:string;field:'itemNo'|'unitPriceUSD'|'description';originalValue:string;correctedValue:string;reason:string}[];
+  season?: string;
+  brand?: string;
+  series?: string;
+  rmbPerUsd?: number;
+  factoryPurchaseOptions?: Record<string, {chineseName?:string; extraFees:{id:string;description:string;amount:number}[];hasDeposit:boolean;depositPercent:number}>;
+  factoryExtraFees?: {id:string;description:string;amount:number}[];
+  erpFactoryApplied?: boolean;
+  factoryQuantityUnit?: '件'|'雙';
+  orderingCompany?: 'CISALFA' | 'FALIS' | 'PREMIUM SPORTS' | 'ITALIAN FITNESS' | 'INTERSPORT' | 'MEDICO';
+  sourceFileName?: string;
+  sourceReferencePo?: string;
+  sourceDiscountPercent?: number;
+  sourceDiscountAmount?: number;
+  sourceNetAmount?: number;
+  reviewWarnings?: string[];
+  sourcePrintedAmount?: number;
+  sourcePrintedQuantity?: number;
+  sourcePrintedPackQuantity?: number;
   orderType?: 'single_color' | 'multi_color' | 'prepack_kit';
   packingType?: 'NORMAL PACK' | 'MULTIPLE PACK';
 

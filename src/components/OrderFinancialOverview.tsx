@@ -1,0 +1,7 @@
+import type {TrackingRecord} from '../utils/workspace';
+import {orderFinancials} from '../utils/orderFinancials';
+const money=(n:number|null)=>n===null?'待核對':n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+export function OrderFinancialOverview({rows,visible,onChoose}:{rows:TrackingRecord[];visible:TrackingRecord[];onChoose:(po:string)=>void}){
+ const keys=new Set(visible.map(r=>JSON.stringify([r.scNumber,r.poNumber]))),data=orderFinancials(rows).filter(g=>keys.has(g.key));
+ return <section className="csq-panel"><div className="csq-panel-heading"><h2>訂單金額總覽 · 每張 P/I 一列</h2></div><p className="desk-hint">顯示符合篩選的完整訂單金額與數量；工廠群組金額各計一次。利潤率依整張訂單客戶金額與換算成本計算。</p><div className="csq-table-scroll tracking-scroll"><table className="csq-table"><thead><tr><th>P/I / 客戶 PO</th><th>品牌 / 系列 / 季度</th><th>完整訂單數量</th><th>整張 P/I 金額 USD</th><th>工廠群組金額</th><th>換算成本 USD</th><th>訂單利潤率</th></tr></thead><tbody>{data.map(g=><tr key={g.key}><td><button className="tracking-po" onClick={()=>onChoose(g.record.poNumber)}>{g.record.scNumber}</button><small>{g.record.poNumber}</small></td><td>{g.record.brand}<small>{g.record.series} · {g.record.season}</small></td><td>{g.quantity.toLocaleString()} 件</td><td>{money(g.salesAmount)}</td><td>{g.costs.length?g.costs.map((c,i)=><small key={i}>{c.supplier} · {c.currency} {money(c.amount)}</small>):'待核對'}</td><td>{money(g.usdCost)}</td><td>{g.margin===null?'待核對':`${(g.margin*100).toFixed(2)}%`}</td></tr>)}</tbody></table></div></section>;
+}

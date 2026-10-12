@@ -10,12 +10,13 @@ import {
 import { groupColorsByRatio } from '../utils/ratioGrouping';
 
 interface Props {
+  compact?: boolean;
   order: OrderData;
   highlightedField?: string;
   onFieldClick?: (fieldName: string) => void;
 }
 
-export const ProformaInvoiceView: React.FC<Props> = ({ order, highlightedField, onFieldClick }) => {
+export const ProformaInvoiceView: React.FC<Props> = ({ order, highlightedField, onFieldClick, compact = false }) => {
   const totalPieces = order.items.reduce((acc, item) => {
     return acc + item.colors.reduce((cSum, c) => cSum + c.totalQuantity, 0);
   }, 0);
@@ -44,7 +45,7 @@ export const ProformaInvoiceView: React.FC<Props> = ({ order, highlightedField, 
   return (
     <div className="bg-white border border-slate-300 rounded-xl shadow-sm overflow-hidden text-slate-800 font-sans">
       {/* Top Action Bar */}
-      <div className="bg-slate-100/90 px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+      <div className={`${compact ? 'hidden' : ''} bg-slate-100/90 px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3`}>
         <div className="flex items-center gap-2">
           <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
           <span className="font-bold text-slate-800 text-sm tracking-wide">

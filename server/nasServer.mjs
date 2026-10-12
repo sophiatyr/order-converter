@@ -1,0 +1,28 @@
+import express from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import {NasDatabase} from './nasDatabase.mjs';
+import {loadWorkspace} from './workspace-validation.mjs';
+export function createNasServer({dataDir=process.env.DATA_DIR||'data',webRoot=process.env.WEB_ROOT||'dist',adminUsername=process.env.NAS_ADMIN_USER,adminPassword=process.env.NAS_ADMIN_PASSWORD,secureCookies=process.env.COOKIE_SECURE==='true'}={}){
+ const db=new NasDatabase(dataDir,w=>loadWorkspace(JSON.stringify(w),null));
+ if(!db.users().length){if(!adminUsername||!adminPassword)throw new Error('首次啟動須設定 NAS_ADMIN_USER 與至少 12 字元的 NAS_ADMIN_PASSWORD');db.addUser({username:adminUsername,password:adminPassword,name:'系統管理員',role:'admin'});}
+ for(const name of ['csq-workspace-references.json','erp-products.json']){const file=path.join(webRoot,name);if(fs.existsSync(file))db.seed(name,JSON.parse(fs.readFileSync(file,'utf8')));}
+ const app=express(),attempts=new Map();app.disable('x-powered-by');app.use(express.json({limit:'30mb'}));app.use((req,res,next)=>{res.set('Cache-Control','no-store');res.set('X-Content-Type-Options','nosniff');res.set('Content-Security-Policy',"default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; connect-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; frame-ancestors 'none'");if(!['GET','HEAD'].includes(req.method)&&req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)return res.status(403).json({error:'請從工作站網址操作'});next();});
+ const cookie=req=>req.headers.cookie?.split(';').map(x=>x.trim()).find(x=>x.startsWith('csq_session='))?.slice(12)||'';
+ const auth=(req,res,next)=>{req.user=db.session(cookie(req));if(!req.user)return res.status(401).json({error:'請先登入'});next();},admin=(req,res,next)=>req.user.role==='admin'?next():res.status(403).json({error:'僅管理員可操作'});
+ app.get('/api/shared/status',(_req,res)=>res.json({mode:'nas',roles:['admin','member']}));app.get('/api/health',(_req,res)=>res.json({ok:true}));
+ app.post('/api/shared/login',(req,res)=>{const key=req.socket.remoteAddress,n=attempts.get(key)||{count:0,until:Date.now()+600000};if(n.until<Date.now()){n.count=0;n.until=Date.now()+600000;}if(n.count>=10)return res.status(429).json({error:'登入嘗試過多，請 10 分鐘後重試'});const result=db.login(req.body.username,req.body.password);if(!result){n.count++;attempts.set(key,n);return res.status(401).json({error:'帳號或密碼不正確'});}attempts.delete(key);res.cookie('csq_session',result.token,{httpOnly:true,sameSite:'strict',secure:secureCookies,maxAge:12*3600000,path:'/'});res.json({user:result.user});});
+ app.post('/api/shared/logout',auth,(req,res)=>{db.logout(cookie(req));res.clearCookie('csq_session',{path:'/'});res.json({ok:true});});app.get('/api/shared/me',auth,(req,res)=>res.json({user:req.user}));
+ app.post('/api/shared/password',auth,(req,res)=>{try{if(!db.verifyPassword(req.user.id,req.body.currentPassword))return res.status(400).json({error:'目前密碼不正確'});db.updateUser(req.user.id,{password:req.body.newPassword});res.clearCookie('csq_session',{path:'/'});res.json({ok:true});}catch(e){res.status(400).json({error:e.message});}});
+ app.get('/api/shared/workspace',auth,(_req,res)=>res.json({workspace:db.workspace(),revision:db.revision()}));
+ app.patch('/api/shared/workspace',auth,(req,res)=>{try{res.json(db.apply(req.body.changes,req.user));}catch(e){res.status(e.code==='CONFLICT'?409:400).json({error:e.message,field:e.field||''});}});
+ app.post('/api/shared/restore',auth,admin,(req,res)=>{try{res.json(db.apply(req.body.changes,req.user));}catch(e){res.status(e.code==='CONFLICT'?409:400).json({error:e.message});}});
+ app.get('/api/shared/users',auth,admin,(_req,res)=>res.json({users:db.users()}));app.post('/api/shared/users',auth,admin,(req,res)=>{try{db.addUser(req.body);res.json({users:db.users()});}catch(e){res.status(400).json({error:e.message});}});app.patch('/api/shared/users/:id',auth,admin,(req,res)=>{try{db.updateUser(Number(req.params.id),req.body);res.json({users:db.users()});}catch(e){res.status(400).json({error:e.message});}});
+ app.get('/api/shared/audit',auth,admin,(_req,res)=>res.json({audit:db.db.prepare('SELECT a.id,a.at,u.name,a.kind,a.record_id FROM audit a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.id DESC LIMIT 100').all()}));
+ app.post('/api/shared/backup',auth,admin,(_req,res)=>{try{res.download(db.backup(),'CSQ_共用資料庫備份.sqlite');}catch(e){res.status(500).json({error:'備份失敗，請檢查 NAS 儲存空間'});}});
+ app.get(['/csq-workspace-references.json','/erp-products.json'],auth,(req,res)=>res.json(db.reference(req.path.slice(1))));
+ app.get('/api/*',(_req,res)=>res.status(404).json({error:'API 不存在'}));
+ app.use((req,res,next)=>{if(req.path==='/'||req.path==='/index.html'||req.path.startsWith('/assets/')||['/manifest.json','/sw.js','/icon-192.png','/icon-512.png','/apple-touch-icon.png'].includes(req.path))return next();auth(req,res,next);});app.use(express.static(webRoot,{dotfiles:'deny',index:'index.html'}));
+ app.use((err,_req,res,_next)=>res.status(400).json({error:'請求格式不符'}));return {app,db};
+}
+if(process.argv[1]&&path.resolve(process.argv[1])===path.resolve(import.meta.filename)){const {app,db}=createNasServer();db.backup();const timer=setInterval(()=>{try{db.backup();}catch{console.error('Database backup failed');}},24*3600000);timer.unref();const server=app.listen(Number(process.env.PORT||8888),'0.0.0.0',()=>console.log('CSQ NAS shared workstation ready'));for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>server.close(()=>{db.close();process.exit(0);}));}

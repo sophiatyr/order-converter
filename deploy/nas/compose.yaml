@@ -1,0 +1,21 @@
+services:
+  csq:
+    build: .
+    container_name: csq-workstation
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    environment:
+      NAS_ADMIN_USER: ${NAS_ADMIN_USER:?請設定管理員帳號}
+      NAS_ADMIN_PASSWORD: ${NAS_ADMIN_PASSWORD:?請設定至少12字元的管理員密碼}
+      COOKIE_SECURE: "false"
+    volumes:
+      - ./data:/data
+      - ./dist:/app/dist:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8888/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true

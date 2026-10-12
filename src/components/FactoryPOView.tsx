@@ -26,6 +26,7 @@ import { groupColorsByRatio } from '../utils/ratioGrouping';
 import { upsertProductInDatabase } from '../utils/productDatabase';
 
 interface Props {
+  compact?: boolean;
   order: OrderData;
   highlightedField?: string;
   onFieldClick?: (fieldName: string) => void;
@@ -37,6 +38,7 @@ export const FactoryPOView: React.FC<Props> = ({
   highlightedField,
   onFieldClick,
   onUpdateOrder,
+  compact = false,
 }) => {
   const [currency, setCurrency] = useState<'RMB' | 'USD'>(order.factoryCurrency || 'RMB');
 
@@ -75,7 +77,8 @@ export const FactoryPOView: React.FC<Props> = ({
 
   const activeTotalAmount = currency === 'USD' ? totalAmountUSD : totalAmountRMB;
   const activeCurrencySymbol = currency === 'USD' ? 'USD ' : 'RMB ';
-  const activeCurrencyUnit = currency === 'USD' ? 'USD/件' : 'RMB/件';
+  const quantityUnit=order.factoryQuantityUnit||'件';
+  const activeCurrencyUnit = `${currency}/${quantityUnit}`;
   const activeCurrencyLabel = currency === 'USD' ? '(USD)' : '(RMB)';
 
   // 訂金計算
@@ -167,7 +170,7 @@ export const FactoryPOView: React.FC<Props> = ({
   return (
     <div className="bg-white border border-slate-300 rounded-xl shadow-sm overflow-hidden text-slate-800 font-sans">
       {/* 頂部操作工具列 */}
-      <div className="bg-slate-100/90 px-4 sm:px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+      <div className={`${compact ? 'hidden' : ''} bg-slate-100/90 px-4 sm:px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3`}>
         <div className="flex items-center gap-2 flex-wrap">
           <Factory className="w-5 h-5 text-amber-700" />
           <span className="font-bold text-slate-800 text-sm tracking-wide">
@@ -524,7 +527,7 @@ export const FactoryPOView: React.FC<Props> = ({
               <div className="flex justify-between items-center">
                 <span className="font-bold text-slate-700">採購日期: </span>
                 <span className="font-mono font-semibold text-slate-950">
-                  {order.piDate.includes('年') ? order.piDate : '2025年07月29日'}
+                  {order.piDate}
                 </span>
               </div>
 
@@ -584,7 +587,7 @@ export const FactoryPOView: React.FC<Props> = ({
                   <th className="py-2 px-2 text-left">規 格 / 說 明</th>
                   <th className="py-2 px-2 w-24 text-right">
                     總 數<br />
-                    <span className="font-normal text-[11px] text-slate-600">(件)</span>
+                    <span className="font-normal text-[11px] text-slate-600">({quantityUnit})</span>
                   </th>
                   <th className="py-2 px-2 w-32 text-right">
                     單 價<br />
@@ -905,7 +908,7 @@ export const FactoryPOView: React.FC<Props> = ({
                                       </th>
                                     ))}
                                     <th className="border border-slate-300 p-1.5 font-bold bg-slate-200/80 w-24">
-                                      合 計 (件)
+                                      合 計 ({quantityUnit})
                                     </th>
                                   </tr>
                                 </thead>

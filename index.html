@@ -1,27 +1,26 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-Hant">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PDF 訂單轉 Excel P/I 與工廠採購單生成系統</title>
+    <title>CSQ 工作站</title>
     <meta name="description" content="智能解析外貿客戶 PDF 訂單（如 Cisalfa Sport），自動按對照表邏輯生成英文 Proforma Invoice (S/C) 與工廠中文採購單 Excel 檔，支援單款單色與單款多色尺寸配比彙整。" />
-    <meta property="og:title" content="PDF 訂單轉 Excel P/I 與工廠採購單生成系統" />
+    <meta property="og:title" content="CSQ 工作站" />
     <meta property="og:description" content="智能解析外貿客戶 PDF 訂單（如 Cisalfa Sport），自動按對照表邏輯生成英文 Proforma Invoice (S/C) 與工廠中文採購單 Excel 檔，支援單款單色與單款多色尺寸配比彙整。" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="theme-color" content="#0f172a" />
+    <meta name="theme-color" content="#153c41" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="成衣訂單單機版" />
+    <meta name="apple-mobile-web-app-title" content="CSQ 工作站" />
     <script>
       if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js').catch((err) => {
-            console.log('ServiceWorker registration note: ', err);
-          });
+          navigator.serviceWorker.getRegistrations().then(registrations => registrations.forEach(registration => registration.unregister()));
+          caches.keys().then(keys => keys.filter(key => key.startsWith('garment-po-system-')).forEach(key => caches.delete(key)));
         });
       }
     </script>
@@ -42,11 +41,11 @@
                 '  <h2 style="color:#38bdf8;margin-top:0;font-size:20px;">📦 外貿成衣訂單轉換系統 - 單機版</h2>',
                 '  <p style="color:#cbd5e1;font-size:14px;line-height:1.6;margin:16px 0;">瀏覽器安全性限制（CORS）阻擋了直接開啟 index.html 的腳本載入。</p>',
                 '  <div style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:16px;margin:20px 0;text-align:left;font-size:13px;line-height:1.8;">',
-                '    <div style="color:#10b981;font-weight:bold;margin-bottom:6px;">請改用以下兩種方式直接開啟（100% 成功）：</div>',
-                '    <div>1. 雙擊資料夾內的 <strong>「單機版_直接點開免安裝.html」</strong>（推薦！直接雙擊秒開）</div>',
-                '    <div>2. 雙擊資料夾內的 <strong>「點我啟動系統_Windows.bat」</strong>（自動啟動本機服務）</div>',
+                '    <div style="color:#10b981;font-weight:bold;margin-bottom:6px;">請使用新版 PDF／OCR 本機啟動方式：</div>',
+                '    <div>雙擊專案資料夾內的 <strong>「啟動訂單系統.bat」</strong>，開啟 http://localhost:8888。</div>',
+                '    <div>PDF 與 OCR 元件會從本機載入，不需要外部 API。</div>',
                 '  </div>',
-                '  <a href="./單機版_直接點開免安裝.html" style="display:inline-block;background:#0284c7;color:white;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:14px;">點此切換至「單機版_直接點開免安裝.html」 ➔</a>',
+                '  <p>請保持啟動視窗開啟；舊版單一 HTML 不包含新版辨識元件。</p>',
                 '</div>'
               ].join('');
               document.body.appendChild(notice);

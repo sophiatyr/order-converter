@@ -24,12 +24,15 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onApplyToOrder?: (matchedItems: ProductMappingItem[]) => void;
+  sharedProducts?:ProductMappingItem[];
+  onProductsChange?:(products:ProductMappingItem[])=>void;
 }
 
 const STORAGE_KEY = 'SK_PRODUCT_MAPPING_DB_V2';
 
-export const ProductDatabaseModal: React.FC<Props> = ({ isOpen, onClose, onApplyToOrder }) => {
-  const [products, setProducts] = useState<ProductMappingItem[]>(() => {
+export const ProductDatabaseModal: React.FC<Props> = ({ isOpen, onClose, onApplyToOrder,sharedProducts,onProductsChange }) => {
+  const [products, setLocalProducts] = useState<ProductMappingItem[]>(() => {
+    if(sharedProducts)return sharedProducts;
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -40,6 +43,8 @@ export const ProductDatabaseModal: React.FC<Props> = ({ isOpen, onClose, onApply
     }
     return defaultProductDatabase;
   });
+  const setProducts:React.Dispatch<React.SetStateAction<ProductMappingItem[]>>=change=>{const next=typeof change==='function'?change(products):change;setLocalProducts(next);onProductsChange?.(next);};
+  useEffect(()=>{if(sharedProducts)setLocalProducts(sharedProducts);},[sharedProducts]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isEditing, setIsEditing] = useState(false);
@@ -48,6 +53,7 @@ export const ProductDatabaseModal: React.FC<Props> = ({ isOpen, onClose, onApply
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if(sharedProducts)return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
     } catch (e) {

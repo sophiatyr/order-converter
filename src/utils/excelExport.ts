@@ -1,3 +1,4 @@
+import {presentWorkbook} from './workbookPresentation';
 import ExcelJS from 'exceljs';
 import { OrderData } from '../types/order';
 import { amountToEnglishWords, amountToChineseWords } from './numberToWords';
@@ -62,8 +63,9 @@ const FILL_PACK_BOX: ExcelJS.Fill = {
   fgColor: { argb: 'FFF8F9FA' },
 };
 
-async function saveWorkbookToFile(wb: ExcelJS.Workbook, filename: string): Promise<void> {
-  const buffer = await wb.xlsx.writeBuffer();
+export interface GeneratedDownload { url: string; filename: string }
+export async function saveWorkbookToFile(wb: ExcelJS.Workbook, filename: string): Promise<GeneratedDownload> {
+  const buffer = await presentWorkbook(wb).xlsx.writeBuffer();
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
@@ -75,8 +77,8 @@ async function saveWorkbookToFile(wb: ExcelJS.Workbook, filename: string): Promi
   anchor.click();
   setTimeout(() => {
     document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
   }, 1500);
+  return { url, filename };
 }
 
 
@@ -590,7 +592,7 @@ export function buildFactoryPOSheet(
   const prepackMode: 'detail' | 'summary' = options?.prepackMode || 'detail';
   const isMultiplePack = order.packingType === 'MULTIPLE PACK' || order.orderType === 'prepack_kit';
 
-  const currencyUnitLabel = poCurrency === 'USD' ? 'USD/件' : 'RMB/件';
+  const currencyUnitLabel = `${poCurrency}/${order.factoryQuantityUnit||'件'}`;
   const currencyAmtLabel = poCurrency === 'USD' ? '(USD)' : '(RMB)';
   const activeCurrencySymbol = poCurrency === 'USD' ? 'USD ' : 'RMB ';
 
@@ -646,7 +648,7 @@ export function buildFactoryPOSheet(
 
   wsPO.getCell(`E${fr}`).value = '採購日期:';
   wsPO.getCell(`E${fr}`).font = FONT_ZH_BOLD;
-  wsPO.getCell(`F${fr}`).value = order.piDate.includes('年') ? order.piDate : '2025年07月29日';
+  wsPO.getCell(`F${fr}`).value = order.piDate;
   wsPO.getCell(`F${fr}`).font = FONT_ZH_REGULAR;
   fr++;
 
@@ -721,7 +723,7 @@ export function buildFactoryPOSheet(
   wsPO.getCell(`A${fr}`).value = '序號';
   wsPO.getCell(`B${fr}`).value = '產品編號';
   wsPO.getCell(`C${fr}`).value = '規 格 / 說 明';
-  wsPO.getCell(`D${fr}`).value = '總 數\n(件)';
+  wsPO.getCell(`D${fr}`).value = `總 數\n(${order.factoryQuantityUnit||'件'})`;
   wsPO.getCell(`E${fr}`).value = `單 價\n(${currencyUnitLabel})`;
   wsPO.getCell(`F${fr}`).value = `金 額\n${currencyAmtLabel}`;
 
@@ -991,7 +993,7 @@ export function buildFactoryPOSheet(
 export async function exportProformaInvoiceExcel(
   order: OrderData,
   customFilename?: string
-): Promise<void> {
+): Promise<GeneratedDownload> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'SPORTS KITE INTERNATIONAL CO., LTD.';
   wb.lastModifiedBy = 'SPORTS KITE INTERNATIONAL CO., LTD.';
@@ -1007,7 +1009,7 @@ export async function exportProformaInvoiceExcel(
 
   const filename =
     customFilename || `PI_${order.piNumber || order.poNumber || 'ORDER'}.xlsx`;
-  await saveWorkbookToFile(wb, filename);
+  return await saveWorkbookToFile(wb, filename);
 }
 
 /**
@@ -1017,7 +1019,7 @@ export async function exportFactoryPOExcel(
   order: OrderData,
   customFilename?: string,
   options?: { poCurrency?: 'RMB' | 'USD'; prepackMode?: 'detail' | 'summary' }
-): Promise<void> {
+): Promise<GeneratedDownload> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'SPORTS KITE INTERNATIONAL CO., LTD.';
   wb.lastModifiedBy = 'SPORTS KITE INTERNATIONAL CO., LTD.';
@@ -1033,7 +1035,7 @@ export async function exportFactoryPOExcel(
 
   const filename =
     customFilename || `採購單_${order.poNumber || order.piNumber || 'ORDER'}.xlsx`;
-  await saveWorkbookToFile(wb, filename);
+  return await saveWorkbookToFile(wb, filename);
 }
 
 /**
@@ -1066,7 +1068,7 @@ export async function exportOrderToExcel(
 export async function exportSimpleProductExcel(
   order: OrderData,
   customFilename?: string
-): Promise<void> {
+): Promise<GeneratedDownload> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'SPORTS KITE INTERNATIONAL CO., LTD.';
   wb.created = new Date();
@@ -1120,7 +1122,7 @@ export async function exportSimpleProductExcel(
 
     const row = ws.addRow([
       item.itemNo, // A: 產品編號
-      '',          // B: 客戶產品編號 (留空如圖片範例)
+      item.customerItemCodes?.join(' / ') || '', // B: 客戶產品編號
       itemQty,     // C: 數量
       unitPrice,   // D: 金額 (客戶金額)
       item.kitQty ? item.kitQty : '', // E: 組合數量 (留空如圖片範例)
@@ -1155,17 +1157,5 @@ export async function exportSimpleProductExcel(
     cellE.alignment = { horizontal: 'right', vertical: 'middle' };
   });
 
-  // 下載 Excel
-  const buffer = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buffer], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download =
-    customFilename ||
-    `${order.poNumber || order.piNumber || 'ORDER'}_產品數量金額清單.xlsx`;
-  anchor.click();
-  URL.revokeObjectURL(url);
+  return await saveWorkbookToFile(wb, customFilename || `${order.poNumber || order.piNumber || 'ORDER'}_產品數量金額清單.xlsx`);
 }
