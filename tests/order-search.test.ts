@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import type {OrderData} from '../src/types/order';
+import {orderMatches,recentOrders} from '../src/utils/orderSearch';
+const refs=JSON.parse(fs.readFileSync('public/csq-workspace-references.json','utf8'));
+const base:OrderData=refs.orders[0];
+const o:OrderData={...base,poNumber:'26OF047481',piNumber:'CS26047481',brand:'ADMIRAL',series:'ADMIRAL BEACHWEAR',season:'SS27',orderingCompany:'CISALFA',poDate:'14/10/2026',items:[{...base.items[0],itemNo:'ADB604S27',customerItemCodes:['S4159920']}]};
+for(const query of ['47481','cs-26047481','admiral ss27','beachwear adb604','S4159920','ＣＳ２６０４７４８１'])assert.ok(orderMatches(o,query),query);
+assert.ok(!orderMatches(o,'admiral ss26'));
+assert.ok(!orderMatches(o,'','FW27'));assert.ok(!orderMatches(o,'','','BEAR'));assert.ok(!orderMatches(o,'','','','FALIS'));
+assert.ok(orderMatches(o,'adb604','SS27','ADMIRAL','CISALFA'));
+const old={...o,poNumber:'26OF000001',poDate:'30/09/2026'};
+assert.deepEqual([old,{...o,poDate:'2026-11-01'},o].sort(recentOrders).map(x=>x.poDate),['2026-11-01','14/10/2026','30/09/2026']);
+assert.equal(o.items[0].itemNo,'ADB604S27');
+console.log('PASS: partial PO/SC/style search, punctuation/fullwidth normalization, combined keywords, independent filters and stable newest-order sorting.');

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';import fs from 'node:fs';
 import {parseCsqCompanyPdf} from '../src/utils/csqCompanyPdf';import {csqIssues} from '../src/utils/csqAccount';
+import {repairMedicoComposition} from '../src/utils/compositionReferences';
+import {correctOrderItems} from '../src/utils/orderCorrections';
 const files=JSON.parse(fs.readFileSync('tests/fixtures/csq-company-pdf-pages.json','utf8'));
 const expected=JSON.parse(fs.readFileSync('tests/fixtures/csq-company-sk-kpi-expected.json','utf8'));
 let verified=0;
@@ -17,6 +19,17 @@ assert.equal(result.success,true,`${f.file}: ${result.error}`);const order=resul
 // never be prefixed onto the colour code even if extraction joins nearby words.
 const falis=parseCsqCompanyPdf(files.find((f:any)=>f.file.includes('#1779')).pages)!.order!;assert.deepEqual(falis.items.map(i=>i.colors[0].colorCode),['050','519A','619A','519A','795']);
 const medico=files.find((f:any)=>f.file.endsWith('111-SOLID-SPORT KITE.pdf'));
+const revised=files.find((f:any)=>f.file.endsWith('112-SOLID-SPORT KITE-REVISED.pdf'));
+const original=files.find((f:any)=>f.file.endsWith('112-SOLID-SPORT KITE.pdf'));
+const revisedOrder=parseCsqCompanyPdf(revised.pages,revised.file)!.order!;
+const originalOrder=parseCsqCompanyPdf(original.pages,original.file)!.order!;
+for(const item of revisedOrder.items){assert.equal(item.styleName,'SHORT FILA W');assert.equal(item.composition,'KNIT - INTERLOCK 100% POLYESTER 75D/72F DRY FIT, 145 GSM');assert.equal(item.description,item.composition);}
+assert.ok(originalOrder.items.every(i=>i.composition!.includes('RECYCLED POLYESTER')));
+const references=[revisedOrder,originalOrder].map(o=>({poNumber:o.poNumber,date:o.poDate,fileName:o.sourceFileName!.split(/[\\/]/).pop()!,quantity:o.totalPieces,amount:o.totalAmountUSD,items:o.items.map(i=>({itemNo:i.itemNo,description:i.styleName,composition:i.composition!,quantity:i.totalQuantity,colors:i.colors.map(c=>({code:c.colorCode,quantity:c.totalQuantity}))}))}));
+const legacy={...revisedOrder,items:revisedOrder.items.map(i=>({...i,composition:undefined,description:i.styleName}))};
+const repaired=repairMedicoComposition(legacy,references);assert.ok(repaired.items.every(i=>i.composition===revisedOrder.items[0].composition));assert.equal(repaired.totalAmountUSD,legacy.totalAmountUSD);assert.equal(repaired.totalPieces,legacy.totalPieces);
+assert.equal(repairMedicoComposition({...legacy,sourceFileName:undefined},references).items[0].composition,undefined,'ambiguous original/revised material must not be guessed');
+const manuallyCorrected=correctOrderItems(legacy,[legacy.items[0].id],{description:'CONFIRMED COMPOSITION'},'客戶確認','2026-10-13');assert.equal(repairMedicoComposition(manuallyCorrected,references).items[0].composition,'CONFIRMED COMPOSITION');
 for(const [label,alter] of [
  ['size',(p:any[][])=>{p[0].find(w=>w.text==='41').text='42';}],
  ['amount',(p:any[][])=>{p[0].find(w=>w.text==='$1,156.40').text='$1,156.41';}],

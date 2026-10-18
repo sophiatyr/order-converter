@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {build} from 'esbuild';
+await build({entryPoints:['src/utils/workspace.ts'],outfile:'work/product-workspace-test.mjs',bundle:true,platform:'node',format:'esm',packages:'external'});
+const {emptyWorkspace,loadWorkspace,seasonOf}=await import('../work/product-workspace-test.mjs');
+assert.equal(seasonOf('CRNM013S04'),'SS24');assert.equal(seasonOf('OTM244S06'),'SS26');assert.equal(seasonOf('ABCTW032S27'),'SS27');
+const w=emptyWorkspace();w.productNotes.CRNM013S04={brand:'CRN',series:'CYCLING SS04',season:'SS04 / SS24',remarks:'測試',name:'自行更正',customerPrice:0,customerCurrency:'USD',supplierCode:'RJ',factoryPrice:15.25,factoryCurrency:'RMB',photo:'data:image/jpeg;base64,/9j/'};
+const copy=loadWorkspace(JSON.stringify(w),null);
+assert.equal(copy.productNotes.CRNM013S04.brand,'CARNIELLI');assert.equal(copy.productNotes.CRNM013S04.season,'SS24');assert.equal(copy.productNotes.CRNM013S04.customerPrice,0);assert.equal(copy.productNotes.CRNM013S04.photo,w.productNotes.CRNM013S04.photo);assert.equal(copy.productNotes.CRNM013S04.factoryCurrency,'RMB');
+const ff={...w,productNotes:{FF01ADB600:{brand:'FF',season:'SS06',remarks:''}}};assert.equal(loadWorkspace(JSON.stringify(ff),null).productNotes.FF01ADB600.brand,'FIREFLY');
+for(const invalid of [{factoryPrice:-1},{photo:'data:image/svg+xml;base64,AAA'},{factoryCurrency:123},{customerPrice:Infinity}])assert.throws(()=>loadWorkspace(JSON.stringify({...w,productNotes:{X:{brand:'',season:'',remarks:'',...invalid}}}),null));
+const erp=JSON.parse(fs.readFileSync('public/erp-products.json','utf8'));const tx=erp.products.flatMap(p=>p.transactions||[]);
+assert.equal(erp.products.length,708);assert.equal(tx.filter(t=>t.kind==='order').length,1862);assert.equal(tx.filter(t=>t.kind==='shipment').length,1660);
+for(const [kind,expected] of [['order',16096628.64],['shipment',14436604.82]])assert.ok(Math.abs(tx.filter(t=>t.kind===kind).reduce((s,t)=>s+t.amount,0)-expected)<.01);
+console.log('Product aliases, backup round trip with photo/prices, invalid data rejection, and ERP history totals verified.');

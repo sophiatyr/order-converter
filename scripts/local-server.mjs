@@ -2,6 +2,9 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import os from 'node:os';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const webRoot = path.join(projectRoot, 'offline_package', '外貿成衣訂單轉換系統_單機離線完整包');
@@ -31,11 +34,39 @@ const sendJson = (response, status, data) => {
   response.end(JSON.stringify(data));
 };
 
-const server = http.createServer((request, response) => {
+let localSystem,erpRefresh;
+const runFile=promisify(execFile);
+async function refreshErpSnapshot(){
+ const candidates=[process.env.CSQ_PYTHON_PATH,path.resolve(path.dirname(process.execPath),'../../python/python.exe'),path.join(os.homedir(),'.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe')].filter(Boolean);
+ const python=candidates.find(file=>fs.existsSync(file))||'python';
+ await runFile(python,[path.join(projectRoot,'scripts/refresh-erp-products.py')],{cwd:projectRoot,windowsHide:true,timeout:120000,maxBuffer:1024*1024,env:{...process.env,PYTHONIOENCODING:'utf-8'}});
+ const snapshot=JSON.parse(fs.readFileSync(path.join(webRoot,'erp-products.json'),'utf8'));
+ return {updatedAt:snapshot.updatedAt,products:snapshot.products.length};
+}
+const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url, `http://localhost:${port}`);
     if (url.pathname === '/api/local-health') {
       sendJson(response, 200, { app: 'order-converter-local', port, pid: process.pid });
+      return;
+    }
+    if(url.pathname==='/api/local-erp-refresh'){
+      if(request.method!=='POST'){sendJson(response,405,{error:'請使用 POST 更新 ERP 資料。'});return;}
+      if(request.headers.origin&&request.headers.origin!==`http://${request.headers.host}`){sendJson(response,403,{error:'只允許本機工作站更新。'});return;}
+      try{erpRefresh||=(refreshErpSnapshot().finally(()=>{erpRefresh=undefined;}));sendJson(response,200,await erpRefresh);}
+      catch{sendJson(response,503,{error:'ERP 連線或更新失敗，原有資料保留，請確認公司網路後再更新。'});}
+      return;
+    }
+    if (url.pathname.startsWith('/api/local-system/api/')) {
+      localSystem ||= import('./shared-preview-server.mjs').then(({createLocalSystem})=>createLocalSystem(projectRoot));
+      try {
+        const {app}=await localSystem;
+        request.url=request.url.slice('/api/local-system'.length);
+        app(request,response);
+      } catch {
+        localSystem=undefined;
+        sendJson(response,503,{error:'帳戶管理測試未能啟動，請確認本機開發環境已安裝相依套件。'});
+      }
       return;
     }
     if (url.pathname.startsWith('/api/')) {

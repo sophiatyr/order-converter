@@ -1,0 +1,21 @@
+import {findCsqReference,type CsqReference} from '../utils/csqReferences';
+import {colorChinese,colorTranslationKey} from '../utils/colorText';
+import type {DocumentTemplates} from '../utils/referenceDocuments';
+import React,{useEffect,useState} from 'react';
+import type {OrderData,OrderItem} from '../types/order';
+import type {Workspace} from '../utils/workspace';
+import {factoryText} from '../utils/factoryText';
+type Text={chineseName:string;chineseSpec:string};
+function StyleText({item,workspace,onSave,onReset,colors,po,templates,onSaveColors,references}:{references:CsqReference[];colors:OrderItem['colors'];po:string;templates?:DocumentTemplates;onSaveColors:(style:string,colors:Record<string,string>)=>void;item:OrderItem;workspace:Workspace;onSave:(style:string,text:Text,sync:boolean)=>void;onReset:(style:string)=>void}){
+ const note=workspace.productNotes[item.itemNo],source=factoryText(item,note,findCsqReference(item.itemNo,po,references));
+ const defaults=Object.fromEntries(colors.map(c=>[colorTranslationKey(c),colorChinese(c,item.itemNo,po,templates,note)]));
+ const [translations,setTranslations]=useState(defaults);useEffect(()=>setTranslations(defaults),[JSON.stringify(defaults)]);
+ const [name,setName]=useState(source.chineseName),[spec,setSpec]=useState(source.chineseSpec),[message,setMessage]=useState('');
+ useEffect(()=>{setName(source.chineseName);setSpec(source.chineseSpec);},[source.chineseName,source.chineseSpec]);
+ const save=(sync:boolean)=>{onSave(item.itemNo,{chineseName:name,chineseSpec:spec},sync);setMessage(sync?'已保存至產品資料，同款其他訂單可沿用。':'已套用此訂單，同款各色一起更新。');};
+ return <section className="factory-text-style"><strong>{item.itemNo}</strong><span className="desk-hint">{item.factoryText?'此訂單專用':note?.chineseName||note?.chineseSpec?'沿用產品資料':'中文待補（未填則只顯示英文）'}</span><div className="desk-form-grid"><label className="desk-field">中文品名<input aria-label={`${item.itemNo} 中文品名`} value={name} onChange={e=>setName(e.target.value)}/></label><label className="desk-field">中文規格<textarea aria-label={`${item.itemNo} 中文規格`} value={spec} onChange={e=>setSpec(e.target.value)}/></label></div><div className="desk-toolbar"><button className="desk-button" onClick={()=>save(false)}>僅套用此訂單</button><button className="desk-button" onClick={()=>save(true)}>保存至產品並套用</button>{item.factoryText&&<button className="desk-button" onClick={()=>{onReset(item.itemNo);setMessage('已改為沿用產品資料。');}}>改用產品資料</button>}{message&&<span role="status">{message}</span>}</div><details className="factory-color-editor"><summary>色名中英對照 · {colors.length} 色（可編輯中文）</summary><div className="csq-table-scroll"><table className="csq-table"><thead><tr><th>色碼</th><th>英文色名（原始 PO）</th><th>中文色名</th></tr></thead><tbody>{colors.map(c=><tr key={colorTranslationKey(c)}><td>{c.colorCode}</td><td>{c.colorName}</td><td><input aria-label={`${item.itemNo} ${c.colorCode} 中文色名`} placeholder="未填則只顯示英文" value={translations[colorTranslationKey(c)]||''} onChange={e=>setTranslations({...translations,[colorTranslationKey(c)]:e.target.value})}/></td></tr>)}</tbody></table></div><button className="desk-button" onClick={()=>{onSaveColors(item.itemNo,translations);setMessage('中文色名已保存至產品資料。');}}>保存中文色名</button></details></section>;
+}
+export function FactoryTextEditor({order,workspace,onSave,onReset,templates,onSaveColors,references=[]}:{references?:CsqReference[];templates?:DocumentTemplates;onSaveColors:(style:string,colors:Record<string,string>)=>void;order:OrderData;workspace:Workspace;onSave:(style:string,text:Text,sync:boolean)=>void;onReset:(style:string)=>void}){
+ const styles=[...new Map(order.items.map(item=>[item.itemNo,item])).values()];
+ return <details className="csq-panel csq-details"><summary>工廠文件中英對照 · {styles.length} 款</summary><p className="desk-hint">採購單與數量明細共用：英文在前、中文在後；未填中文只顯示英文。保存至產品後，往後同款可直接沿用。每種面料各填一行中文，依英文面料順序對應；P/I 英文內容分開保存。</p>{styles.map(item=><StyleText references={references} key={item.itemNo} templates={templates} po={order.poNumber} onSaveColors={onSaveColors} colors={[...new Map(order.items.filter(i=>i.itemNo===item.itemNo).flatMap(i=>i.colors).map(c=>[colorTranslationKey(c),c])).values()]} item={item} workspace={workspace} onSave={onSave} onReset={onReset}/>)}</details>;
+}

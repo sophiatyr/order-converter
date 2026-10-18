@@ -409,6 +409,11 @@ function parseMultiplePo(rows:string[][],fileName:string):LocalParseResult{
 /** CSQ normal PO: style, size, order multiple and color quantity use separate rows. */
 function parseVendorPo(rows: any[][], fileName: string): LocalParseResult {
   const text = rows.map(row => row.map(clean).join('	')).join('\n');
+  const pages=[...text.matchAll(/\bPage\s+(\d+)\s*of\s*(\d+)\b/gi)];
+  if(pages.length){
+    const expected=Number(pages[0][2]),seen=new Set(pages.map(p=>Number(p[1])));
+    if(pages.some(p=>Number(p[2])!==expected||Number(p[1])<1||Number(p[1])>expected)||seen.size!==expected)return {success:false,error:`CSQ PO 頁數不完整（讀取 ${seen.size}／${expected} 頁），請提供全部頁面；未匯入不完整訂單。`};
+  }
   if (/Kit\s+composition/i.test(text)) return parseMultiplePo(rows.map(row=>row.map(clean)),fileName);
   const metadata = rows.slice(0, Math.max(0, rows.findIndex(row => /VENDOR\s+PART\s+NUMBER/i.test(row.join(' ')))));
   type Record = { style: string; vendorPart: string; description: string; color: string; colorName: string; sizes: string[]; values: string[]; quantity: string; price: string; amount: number; codes: string[]; multiples: number[]; unresolved: boolean };
@@ -417,25 +422,29 @@ function parseVendorPo(rows: any[][], fileName: string): LocalParseResult {
   let waitingColor = false, readingDescription = false, readingColorName = false;
   for (const source of rows) {
     const row = source.map(clean);
+    // CSQ prints numbered AOP colours as either AOP2 or AOP 2, including
+    // the vendor suffix. Keep the number inside the colour code so it
+    // cannot shift the colour name and the following size quantities.
+    if(row[0])row[0]=row[0].replace(/^((?:[A-Z][A-Z0-9-]*-)?AOP)\s+(\d+)(?=\s|$)/i,'$1$2');
     // PDF words close to a long part number or colour can share one text cell.
     // Recover those boundaries before changing parser state; otherwise the next
     // quantity can be attached to the preceding style or silently skipped.
     const combinedPart = row[0]?.match(/^((?=[A-Z0-9-]*\d)[A-Z][A-Z0-9-]{3,}(?:\/\d+)?)\s+(.+)$/);
-    const combinedColor = row[0]?.match(/^(\d+(?:\/\d+)*)\s+(.+)$/);
+    const combinedColor = row[0]?.match(/^((?:\d+(?:\/\d+)*|AOP\d*))\s+(.+)$/);
     if (combinedPart || combinedColor) {
       const split = (combinedPart || combinedColor)!;
       row.splice(0, 1, split[1], split[2]);
     }
     const line = row.join(' ');
     if (!line.trim() || /^(PAGE|VENDOR|ORDER|DATE|ITEM|BRAND|TOTAL|SALES|TERMS|DELIVERY|PORT|CURRENCY)/i.test(line.trim())) readingColorName = false;
-    if (/^(?=.*\d)[A-Z][A-Z0-9-]{3,}(?:\/\d+)?$/.test(row[0] || '') && !/^S\d+$/.test(row[0]) && row.length > 1) {
+    if (/^(?=.*\d)[A-Z][A-Z0-9-]{3,}(?:\/\d+)?$/.test(row[0] || '') && !/^S\d+$/.test(row[0]) && !/^AOP\d*$/i.test(row[0]) && row.length > 1) {
       vendorPart = row[0]; description = row.slice(1).join(' '); multiples = []; codes = [];
       readingColorName = false;
       waitingColor = vendorPart.endsWith('-'); readingDescription = true;
       const found = line.match(/\bS\d+\b/g); if (found) codes.push(...found);
       continue;
     }
-    if (waitingColor && /^\d+(?:\/\d+)*$/.test(row[0] || '')) {
+    if (waitingColor && /^(?:\d+(?:\/\d+)*|AOP\d*)$/.test(row[0] || '')) {
       vendorPart += row[0]; waitingColor = false;
       description += ' ' + row.slice(1).filter(cell => !/^S\d+$/.test(cell)).join(' ');
       codes.push(...(line.match(/\bS\d+\b/g) || []));
@@ -450,17 +459,18 @@ function parseVendorPo(rows: any[][], fileName: string): LocalParseResult {
       codes.push(...(line.match(/\bS\d+\b/g) || []));
       description += ' ' + row.filter(cell => !/^S\d+$/.test(cell)).join(' '); continue;
     }
-    if (readingColorName && records.length && nonempty.length === 1 && /^[A-Z][A-Z .()+\/-]*$/i.test(line.trim()) && !/^(TOTAL|SALES|CURRENCY|AMOUNT|DISCOUNT|CHARGES|ROUND)/i.test(line.trim())) {
-      records[records.length - 1].colorName += ' ' + line.trim(); continue;
+    if (readingColorName && records.length && nonempty.length === 1 && /^[+＋]?\s*[A-Z][A-Z .()+\/-]*$/i.test(line.trim()) && !/^(TOTAL|SALES|CURRENCY|AMOUNT|DISCOUNT|CHARGES|ROUND)/i.test(line.trim())) {
+      const continuation=line.trim();
+      records[records.length - 1].colorName += (/^[+＋]/.test(continuation)?'\n':' ') + continuation; continue;
     }
-    if (!vendorPart || waitingColor || !sizes.length || !/^\d+(?:\/\d+)*$/.test(row[0] || '')) continue;
+    if (!vendorPart || waitingColor || !sizes.length || !/^(?:\d+(?:\/\d+)*|AOP\d*)$/.test(row[0] || '')) continue;
     let marker = row.findIndex(cell => /^\d[\d.,]*\s*(?:PZ|PCS|PC|EA)\b/i.test(cell));
     let quantity = '', price = '', amount = NaN;
     if (marker >= 0) { quantity = row[marker].match(/^\d[\d.,]*/)?.[0] || ''; price = row[marker + 1] || ''; amount = readNumber(row[marker + 2]); }
     else { marker = row.findIndex(cell => /^(PZ|PCS|PC|EA)$/i.test(cell)); if (marker >= 1) { quantity = row[marker - 1]; price = row[marker + 1] || ''; amount = readNumber(row[marker + 2]); marker--; } }
     if (marker < 0 || !Number.isFinite(readNumber(quantity))) continue;
     const values = row.slice(2, marker), unresolved = values.length !== sizes.length || values.some(value => value !== '' && !Number.isFinite(readNumber(value)));
-    const style = vendorPart.replace(/-\d+(?:\/\d+)*$/, '');
+    const style = vendorPart.replace(/-(?:\d+(?:\/\d+)*|AOP\d*)$/, '');
     records.push({ style, vendorPart, description, color: row[0], colorName: row[1] || '', sizes: [...sizes], values, quantity, price, amount, codes: [...new Set(codes)], multiples: [...multiples], unresolved });
     readingColorName = true;
   }
@@ -484,6 +494,8 @@ function parseVendorPo(rows: any[][], fileName: string): LocalParseResult {
   order.items.forEach((item, index) => {
     const source = records[index];
     item.sizes = source.sizes; item.vendorPart = source.vendorPart; item.customerItemCodes = source.codes;
+    const composition=source.description.match(/^(.*?)\s*-?\s*Products?\s+compo(?:sition|tion)\s*:\s*([\s\S]+)$/i);
+    if(composition){item.styleName=composition[1].trim();item.description=composition[2].trim();item.composition=item.description;item.compositionSource='po';}
     item.colors.forEach(color => { color.quantitiesBySize = Object.fromEntries(source.sizes.map(size => [size, color.quantitiesBySize[size] || 0])); });
     item.isPrepack = false;
     if (source.multiples.length === source.sizes.length && source.multiples.every(value => Number.isFinite(value) && value > 0)) item.orderMultipleBySize = Object.fromEntries(source.sizes.map((size, i) => [size, source.multiples[i]]));
@@ -494,9 +506,10 @@ function parseVendorPo(rows: any[][], fileName: string): LocalParseResult {
   order.packingType = 'NORMAL PACK'; order.orderType = order.items.length > 1 ? 'multi_color' : 'single_color';
   const printedTotal = readNumber(text.match(/Total\s+Pieces\s*:\s*([\d.,]+)/i)?.[1]);
   if (Number.isFinite(printedTotal)) order.sourcePrintedQuantity = printedTotal;
-  if (Number.isFinite(printedTotal) && printedTotal !== order.totalPieces) result.warnings?.push('PDF 列印總件數與辨識合計不一致，請核對。');
+  if (Number.isFinite(printedTotal) && printedTotal !== order.totalPieces) return {success:false,error:`CSQ PO 明細僅讀到 ${order.totalPieces} 件，與原始 PO ${printedTotal} 件不符，請提供完整原始 PO；未匯入不完整訂單。`};
   const totals = [...text.matchAll(/\bUSD\s+([\d.,]+(?:[\t ]+[\d.,]+)*)/gi)];
-  if (totals.length === 1) { order.sourcePrintedAmount = readNumber(totals[0][1].trim().split(/\s+/).at(-1)); if (Math.abs(order.totalAmountUSD - order.sourcePrintedAmount) > 0.01) result.warnings?.push('明細與 PO 列印總金額不符，請核對完整頁數。'); }
+  if (totals.length === 1) { order.sourcePrintedAmount = readNumber(totals[0][1].trim().split(/\s+/).at(-1)); if (Math.abs(order.totalAmountUSD - order.sourcePrintedAmount) > 0.01) return {success:false,error:'CSQ PO 明細與原始 PO 總金額不符，請核對完整頁數；未匯入不完整訂單。'}; }
+  if(records.some(record=>/-AOP\d*$/.test(record.vendorPart)&&(record.unresolved||record.values.reduce((sum,value)=>sum+(value?readNumber(value):0),0)!==readNumber(record.quantity))))return {success:false,error:'CSQ 印花款色的尺碼件數與 PO 列印件數不符，請核對原始尺碼欄位；未匯入不完整訂單。'};
   result.recognizedFormat = 'CSQ 款色／尺碼分列 PO';
   return result;
 }

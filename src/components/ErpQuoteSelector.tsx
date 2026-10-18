@@ -1,3 +1,4 @@
+import {pricingCode} from '../utils/sizeVariants';
 import type { OrderData } from '../types/order';
 import { erpQuoteKey, productQuotes, type ErpSnapshot } from '../utils/erpProducts';
 import {chineseFactoryName} from '../utils/csqAccount';
@@ -9,9 +10,9 @@ interface Props {
 const quoteDate = (value:string) => /^\d{8}$/.test(value)?`${value.slice(0,4)}-${value.slice(4,6)}-${value.slice(6)}`:value||'日期未填';
 export function ErpQuoteSelector({order,snapshot,choices,onChange,onApply,busy}:Props) {
   if (!order.erpFactoryApplied || !snapshot) return null;
-  const styles = [...new Set(order.items.map(i=>i.itemNo.trim().toUpperCase()))];
+  const styles = [...new Set(order.items.map(i=>pricingCode(i).trim().toUpperCase()))];
   const rows = styles.map(style=>{
-    const items=order.items.filter(i=>i.itemNo.trim().toUpperCase()===style);
+    const items=order.items.filter(i=>pricingCode(i).trim().toUpperCase()===style);
     const product=snapshot.products.find(p=>p.itemNo.trim().toUpperCase()===style);
     return {style,items,quotes:product?productQuotes(product):[]};
   }).filter(r=>r.quotes.length>1 || r.items.some(i=>!i.factoryProduct));

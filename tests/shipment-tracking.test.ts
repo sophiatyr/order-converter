@@ -8,7 +8,7 @@ const rows=trackingRows(emptyWorkspace(),refs).filter(r=>r.season==='SS27');
 assert.deepEqual(template.headers,shipmentTrackingHeaders);
 const book=buildShipmentTracking(rows,emptyWorkspace(),template,{date:'2026-10-12',referenceOrders:refs.orders}),sheet=book.getWorksheet('CSQ')!;
 assert.equal(sheet.rowCount,287);assert.equal(book.worksheets.length,1);
-assert.equal(sheet.getCell('A1').value,"SPORTS KITE INT'L CO., LTD.");
+assert.equal(sheet.getCell('A1').value,"SPORTS KITE INTERNATIONAL CO., LTD.");
 assert.equal(sheet.getCell('J4').value instanceof Date,true);assert.equal(sheet.getCell('J8').value,'');
 assert.equal(sheet.getCell('A8').value instanceof Date,true,'Order date comes from original PO, never from a standalone day number');
 assert.equal(sheet.getCell('A6').value,'SHIP TO :GENOA, ITALY');

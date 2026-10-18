@@ -1,0 +1,5 @@
+import type {Workspace} from './workspace';
+function open(){return new Promise<IDBDatabase>((resolve,reject)=>{const r=indexedDB.open('CSQ_WORKSPACE_DATABASE',1);r.onupgradeneeded=()=>r.result.createObjectStore('workspace');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
+export async function readLocalWorkspace(){const db=await open();try{return await new Promise<Workspace|undefined>((resolve,reject)=>{const r=db.transaction('workspace').objectStore('workspace').get('current');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}finally{db.close();}}
+let tail:Promise<void>=Promise.resolve();
+export function writeLocalWorkspace(value:Workspace){const save=async()=>{const db=await open();try{await new Promise<void>((resolve,reject)=>{const tx=db.transaction('workspace','readwrite');tx.objectStore('workspace').put(value,'current');tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});}finally{db.close();}};const next=tail.catch(()=>{}).then(save);tail=next;return next;}

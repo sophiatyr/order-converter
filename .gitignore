@@ -33,3 +33,6 @@ public/csq-*.json
 public/csq-*.docx
 public/standalone.html
 public/單機版_直接點開免安裝.html
+
+# Local company reports and inspection output.
+outputs/

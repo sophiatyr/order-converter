@@ -20,7 +20,7 @@ for(const kind of ['invoice','packing'] as const){
  const roundtrip=new ExcelJS.Workbook();await roundtrip.xlsx.load(await book.xlsx.writeBuffer());
  const text=roundtrip.worksheets.flatMap(ws=>{const vals:string[]=[];ws.eachRow(r=>r.eachCell(c=>vals.push(JSON.stringify(c.value))));return vals;}).join('\n');
  for(const sample of ['CS251428FA','25OF037927','CS26001262','H3924CI016365','0044025CD00249','JAN. 28, 2026','FALIS'])assert.ok(!text.includes(sample),`Old ${sample} must not leak into ${kind}`);
- assert.ok(text.includes("SPORTS KITE INT'L CO., LTD."));assert.ok(text.includes('TEST-PO-001'));
+ assert.ok(text.includes("SPORTS KITE INTERNATIONAL CO., LTD."));assert.ok(text.includes('TEST-PO-001'));
  assert.equal(book.worksheets[0].pageSetup.fitToWidth,1);
  if(kind==='invoice'){const ws=book.worksheets[0];assert.equal(ws.getCell('A5').value,'COMMERCIAL INVOICE');assert.equal(ws.getCell('F23').value,56);assert.deepEqual(ws.getCell('I23').value,{formula:'F23*H23',result:131.6});assert.equal(ws.getCell('C22').master.address,'C22');assert.equal(ws.getCell('I22').master.address,'C22');}
  else{assert.equal(book.worksheets.length,2);const pk=book.worksheets[0],weight=book.worksheets[1];assert.equal(pk.getCell('M15').value,'XXXL');assert.equal(pk.getCell('D17').value&&typeof pk.getCell('D17').value,'object');assert.deepEqual(pk.getCell('O17').value,{formula:'N17*D17',result:56});assert.equal(weight.getCell('C14').value,56);assert.equal(weight.getCell('E14').value,22);assert.equal(weight.getCell('G14').value,'TEST CONTAINER');}

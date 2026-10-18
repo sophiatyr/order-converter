@@ -168,14 +168,44 @@ function matchProductInDatabase(itemNo) {
   return void 0;
 }
 
+// src/utils/sizeVariants.ts
+function sizeVariantOrder(order) {
+  return { ...order, items: order.items.map((item) => {
+    if (item.itemNo.trim().toUpperCase() !== "RCL006") return item;
+    const active = item.sizes.filter((size) => item.colors.some((c) => (c.quantitiesBySize[size] || 0) > 0));
+    if (active.length !== 1 || !["S", "M", "L", "XL"].includes(active[0])) return item.erpItemNo ? { ...item, erpItemNo: void 0, factoryProduct: void 0, erpQuoteKey: void 0, factoryPriceRecord: void 0, factoryUnitPriceUSD: void 0, unitPriceRMB: 0, totalAmountRMB: 0 } : item;
+    const erpItemNo = `RCL006-${active[0]}`;
+    if (item.erpItemNo === erpItemNo) return item;
+    return { ...item, erpItemNo, factoryProduct: void 0, erpQuoteKey: void 0, factoryPriceRecord: void 0, factoryUnitPriceUSD: void 0, unitPriceRMB: 0, totalAmountRMB: 0 };
+  }) };
+}
+
 // src/utils/classification.ts
 function cleanSeries(value) {
   const suffix = /(?:\s*[-–—·/()]?\s*\b(?:SS|FW|AW)\s*['’]?\d{2}\s*\)?)+$/i;
-  return [...new Set(value.split(" / ").map((s) => suffix.test(s.trim()) ? s.trim().replace(suffix, "").trim() : s.trimStart()).filter((s) => s.trim()))].join(" / ");
+  const audience = "(?:MAN|MEN|WOMAN|WOMEN|BOY|BOYS|GIRL|GIRLS)";
+  const gender = new RegExp(`\\s+${audience}(?:\\s*[/&,\xB7-]\\s*${audience})*\\s*$`, "i");
+  return [...new Set(value.split(" / ").map((s) => {
+    const text = suffix.test(s.trim()) ? s.trim().replace(suffix, "").trim() : s.trimStart();
+    return text.replace(gender, "").replace(/\s+/g, " ").toUpperCase();
+  }).filter((s) => s.trim()))].join(" / ");
+}
+function canonicalSeries(value) {
+  return [...new Set(cleanSeries(value).split(" / ").map((s) => s.trim()).filter(Boolean))].join(" / ");
+}
+function canonicalSeason(value) {
+  return [...new Set(value.split(" / ").map((s) => s.trim().toUpperCase().replace(/^SS04$/, "SS24").replace(/^SS06$/, "SS26")))].filter(Boolean).join(" / ");
+}
+var knownBrands = ["BEST COMPANY", "CARNIELLI", "FIREFLY", "ADMIRAL", "INTERSPORT", "MISTRAL", "ELLESSE", "REUSCH", "ARENA", "BEAR", "FILA", "8848", "ABC"];
+function canonicalBrand(value) {
+  const text = value.trim().replace(/\s+/g, " ").toUpperCase().replace(/^CRN(?=$|\s)/, "CARNIELLI").replace(/^(FF|FIRERLY)(?=$|\s)/, "FIREFLY");
+  return knownBrands.find((brand) => text === brand || text.startsWith(brand + " ")) || text;
 }
 function normalizeClassification(value) {
-  const original = value.series || "", matches = [...original.matchAll(/\b(SS|FW|AW)\s*['’]?(\d{2})\b/gi)].map((m) => `${m[1]}${m[2]}`.toUpperCase());
-  return { ...value, ...value.series !== void 0 ? { series: cleanSeries(original) } : {}, ...!value.season && new Set(matches).size === 1 ? { season: matches[0] } : {} };
+  const brand = canonicalBrand(value.brand || ""), rawBrand = (value.brand || "").trim().replace(/\s+/g, " ").toUpperCase();
+  const misplacedSeries = knownBrands.includes(brand) && rawBrand.startsWith(brand + " ") ? rawBrand : "";
+  const original = value.series || misplacedSeries, matches = [...original.matchAll(/\b(SS|FW|AW)\s*['’]?(\d{2})\b/gi)].map((m) => `${m[1]}${m[2]}`.toUpperCase());
+  return { ...value, ...value.brand !== void 0 ? { brand } : {}, ...value.series !== void 0 || misplacedSeries ? { series: cleanSeries(original) } : {}, ...value.season ? { season: canonicalSeason(value.season) } : new Set(matches).size === 1 ? { season: canonicalSeason(matches[0]) } : {} };
 }
 
 // src/utils/orderCorrections.ts
@@ -194,9 +224,18 @@ function correctOrderItems(order, itemIds, values, reason, date) {
       if (original === value || field === "unitPriceUSD" && Number(original) === Number(value)) continue;
       corrections.push({ id: `correction:${date}:${item.id}:${field}:${corrections.length}`, date, itemId: item.id, field, originalValue: original, correctedValue: value, reason: reason.trim() });
       if (field === "itemNo") {
-        next = { ...next, itemNo: value, factoryProduct: void 0, erpQuoteKey: void 0, chineseName: "", chineseSpec: "", factoryUnitPriceUSD: 0, unitPriceRMB: 0, totalAmountRMB: 0 };
+        next = { ...next, itemNo: value, erpItemNo: void 0, factoryProduct: void 0, erpQuoteKey: void 0, factoryPriceRecord: void 0, customerPriceRecord: void 0, chineseName: "", chineseSpec: "", factoryUnitPriceUSD: 0, unitPriceRMB: 0, totalAmountRMB: 0 };
       }
-      if (field === "description") next.description = value;
+      if (field === "itemNo" && ["product", "erp"].includes(item.compositionSource || "")) {
+        next.composition = void 0;
+        next.compositionSource = void 0;
+        next.description = next.styleName;
+      }
+      if (field === "description") {
+        next.description = value;
+        next.composition = value;
+        next.compositionSource = "manual";
+      }
       if (field === "unitPriceUSD") next = { ...next, unitPriceUSD: Number(value), totalAmountUSD: next.totalQuantity * Number(value), ...next.isPrepack ? { kitPriceUSD: Number(value) * (next.piecesPerKit || 1) } : {} };
     }
     return next;
@@ -204,6 +243,20 @@ function correctOrderItems(order, itemIds, values, reason, date) {
   return { ...order, items, corrections, totalAmountUSD: items.reduce((n, i) => n + i.totalQuantity * i.unitPriceUSD, 0) };
 }
 function applyConfirmedPoCorrections(order) {
+  if (order.poNumber === "26OF048119") {
+    const names = {
+      "ADW600S27|302/57": ["ROSE GLITTER", "+VIOLET SOLID"],
+      "ADW600S27|304/75": ["SALVIA GLITTER", "+BLACK GLITTER"],
+      "ADW600S27|315/311": ["ROYAL GLITTER", "+VIOLET GLITTER"],
+      "ADW600S27|75/309": ["BLACK GLITTER", "+ACQUA GLITTER"],
+      "ADW660S27|AOP": ["SNAKE WHITE", "+BLACK"]
+    };
+    const items = order.items.map((item) => ({ ...item, colors: item.colors.map((color) => {
+      const pair = names[`${item.itemNo}|${color.colorCode}`];
+      return pair && color.colorName.trim() === pair[0] ? { ...color, colorName: pair.join("\n") } : color;
+    }) }));
+    return { ...order, items };
+  }
   if (!["26OF028471", "26OF028566", "26OF028570"].includes(order.poNumber)) return order;
   let next = order;
   for (const [from, to] of [["ABCTW070CO", "ABCTW070S27"], ["ABCTW032W26", "ABCTW032S27"]]) {
@@ -215,6 +268,7 @@ function applyConfirmedPoCorrections(order) {
 
 // src/utils/csqAccount.ts
 var CSQ_PAYMENT_TERMS = "100% AMOUNT BY USANCE L/C 90 DAYS.";
+var FALIS_CUSTOMER_NAME = "FALIS 2014 S.R.L A SOCIO UNICO";
 function detectCsqCompany(text) {
   if (/PREMIUM\s+SPORTS/i.test(text)) return "PREMIUM SPORTS";
   if (/FALIS\s*2014/i.test(text)) return "FALIS";
@@ -238,14 +292,14 @@ function csqOrderNumber(po, company, date = "") {
   return company === "CISALFA" ? `CS${match[1]}${match[2]}` : `CS${match[2]}${company === "MEDICO" ? "ME" : "PS"}`;
 }
 function normalizeCsqOrder(order) {
-  order = applyConfirmedPoCorrections(normalizeClassification(order));
+  order = sizeVariantOrder(applyConfirmedPoCorrections(normalizeClassification(order)));
   const company = order.orderingCompany || detectCsqCompany(order.customerName);
   return {
     ...order,
     customerCode: "CSQ",
     orderingCompany: company,
-    paymentTerms: !order.paymentTerms || /^90\s*L\/?C$/i.test(order.paymentTerms.trim()) || /^100% AMOUNT BY USANCE L\/C 90 DAYS\.?$/i.test(order.paymentTerms.trim()) ? CSQ_PAYMENT_TERMS : order.paymentTerms,
-    customerName: company === "CISALFA" ? "CISALFA SPORT SPA." : order.customerName,
+    paymentTerms: !order.paymentTerms || /^90\s*L\/?C$/i.test(order.paymentTerms.trim()) || /^L\/?C\s+90\s+DAYS\.?$/i.test(order.paymentTerms.trim()) || /^100% AMOUNT BY USANCE L\/C 90 DAYS\.?$/i.test(order.paymentTerms.trim()) ? CSQ_PAYMENT_TERMS : order.paymentTerms,
+    customerName: company === "CISALFA" ? "CISALFA SPORT SPA." : company === "FALIS" ? FALIS_CUSTOMER_NAME : order.customerName,
     piNumber: csqOrderNumber(order.poNumber, company, order.poDate) || order.piNumber,
     totalPieces: order.items.reduce((sum, item) => sum + item.totalQuantity, 0),
     totalAmountUSD: order.items.reduce((sum, item) => sum + item.totalQuantity * item.unitPriceUSD, 0),
@@ -707,6 +761,11 @@ function parseMultiplePo(rows, fileName) {
 }
 function parseVendorPo(rows, fileName) {
   const text = rows.map((row) => row.map(clean).join("	")).join("\n");
+  const pages = [...text.matchAll(/\bPage\s+(\d+)\s*of\s*(\d+)\b/gi)];
+  if (pages.length) {
+    const expected = Number(pages[0][2]), seen = new Set(pages.map((p) => Number(p[1])));
+    if (pages.some((p) => Number(p[2]) !== expected || Number(p[1]) < 1 || Number(p[1]) > expected) || seen.size !== expected) return { success: false, error: `CSQ PO \u9801\u6578\u4E0D\u5B8C\u6574\uFF08\u8B80\u53D6 ${seen.size}\uFF0F${expected} \u9801\uFF09\uFF0C\u8ACB\u63D0\u4F9B\u5168\u90E8\u9801\u9762\uFF1B\u672A\u532F\u5165\u4E0D\u5B8C\u6574\u8A02\u55AE\u3002` };
+  }
   if (/Kit\s+composition/i.test(text)) return parseMultiplePo(rows.map((row) => row.map(clean)), fileName);
   const metadata = rows.slice(0, Math.max(0, rows.findIndex((row) => /VENDOR\s+PART\s+NUMBER/i.test(row.join(" ")))));
   const records = [];
@@ -714,15 +773,16 @@ function parseVendorPo(rows, fileName) {
   let waitingColor = false, readingDescription = false, readingColorName = false;
   for (const source of rows) {
     const row = source.map(clean);
+    if (row[0]) row[0] = row[0].replace(/^((?:[A-Z][A-Z0-9-]*-)?AOP)\s+(\d+)(?=\s|$)/i, "$1$2");
     const combinedPart = row[0]?.match(/^((?=[A-Z0-9-]*\d)[A-Z][A-Z0-9-]{3,}(?:\/\d+)?)\s+(.+)$/);
-    const combinedColor = row[0]?.match(/^(\d+(?:\/\d+)*)\s+(.+)$/);
+    const combinedColor = row[0]?.match(/^((?:\d+(?:\/\d+)*|AOP\d*))\s+(.+)$/);
     if (combinedPart || combinedColor) {
       const split = combinedPart || combinedColor;
       row.splice(0, 1, split[1], split[2]);
     }
     const line = row.join(" ");
     if (!line.trim() || /^(PAGE|VENDOR|ORDER|DATE|ITEM|BRAND|TOTAL|SALES|TERMS|DELIVERY|PORT|CURRENCY)/i.test(line.trim())) readingColorName = false;
-    if (/^(?=.*\d)[A-Z][A-Z0-9-]{3,}(?:\/\d+)?$/.test(row[0] || "") && !/^S\d+$/.test(row[0]) && row.length > 1) {
+    if (/^(?=.*\d)[A-Z][A-Z0-9-]{3,}(?:\/\d+)?$/.test(row[0] || "") && !/^S\d+$/.test(row[0]) && !/^AOP\d*$/i.test(row[0]) && row.length > 1) {
       vendorPart = row[0];
       description = row.slice(1).join(" ");
       multiples = [];
@@ -734,7 +794,7 @@ function parseVendorPo(rows, fileName) {
       if (found) codes.push(...found);
       continue;
     }
-    if (waitingColor && /^\d+(?:\/\d+)*$/.test(row[0] || "")) {
+    if (waitingColor && /^(?:\d+(?:\/\d+)*|AOP\d*)$/.test(row[0] || "")) {
       vendorPart += row[0];
       waitingColor = false;
       description += " " + row.slice(1).filter((cell) => !/^S\d+$/.test(cell)).join(" ");
@@ -756,11 +816,12 @@ function parseVendorPo(rows, fileName) {
       description += " " + row.filter((cell) => !/^S\d+$/.test(cell)).join(" ");
       continue;
     }
-    if (readingColorName && records.length && nonempty.length === 1 && /^[A-Z][A-Z .()+\/-]*$/i.test(line.trim()) && !/^(TOTAL|SALES|CURRENCY|AMOUNT|DISCOUNT|CHARGES|ROUND)/i.test(line.trim())) {
-      records[records.length - 1].colorName += " " + line.trim();
+    if (readingColorName && records.length && nonempty.length === 1 && /^[+＋]?\s*[A-Z][A-Z .()+\/-]*$/i.test(line.trim()) && !/^(TOTAL|SALES|CURRENCY|AMOUNT|DISCOUNT|CHARGES|ROUND)/i.test(line.trim())) {
+      const continuation = line.trim();
+      records[records.length - 1].colorName += (/^[+＋]/.test(continuation) ? "\n" : " ") + continuation;
       continue;
     }
-    if (!vendorPart || waitingColor || !sizes.length || !/^\d+(?:\/\d+)*$/.test(row[0] || "")) continue;
+    if (!vendorPart || waitingColor || !sizes.length || !/^(?:\d+(?:\/\d+)*|AOP\d*)$/.test(row[0] || "")) continue;
     let marker = row.findIndex((cell) => /^\d[\d.,]*\s*(?:PZ|PCS|PC|EA)\b/i.test(cell));
     let quantity = "", price = "", amount = NaN;
     if (marker >= 0) {
@@ -778,7 +839,7 @@ function parseVendorPo(rows, fileName) {
     }
     if (marker < 0 || !Number.isFinite(readNumber(quantity))) continue;
     const values = row.slice(2, marker), unresolved = values.length !== sizes.length || values.some((value) => value !== "" && !Number.isFinite(readNumber(value)));
-    const style = vendorPart.replace(/-\d+(?:\/\d+)*$/, "");
+    const style = vendorPart.replace(/-(?:\d+(?:\/\d+)*|AOP\d*)$/, "");
     records.push({ style, vendorPart, description, color: row[0], colorName: row[1] || "", sizes: [...sizes], values, quantity, price, amount, codes: [...new Set(codes)], multiples: [...multiples], unresolved });
     readingColorName = true;
   }
@@ -815,6 +876,13 @@ function parseVendorPo(rows, fileName) {
     item.sizes = source.sizes;
     item.vendorPart = source.vendorPart;
     item.customerItemCodes = source.codes;
+    const composition = source.description.match(/^(.*?)\s*-?\s*Products?\s+compo(?:sition|tion)\s*:\s*([\s\S]+)$/i);
+    if (composition) {
+      item.styleName = composition[1].trim();
+      item.description = composition[2].trim();
+      item.composition = item.description;
+      item.compositionSource = "po";
+    }
     item.colors.forEach((color) => {
       color.quantitiesBySize = Object.fromEntries(source.sizes.map((size) => [size, color.quantitiesBySize[size] || 0]));
     });
@@ -829,12 +897,13 @@ function parseVendorPo(rows, fileName) {
   order.orderType = order.items.length > 1 ? "multi_color" : "single_color";
   const printedTotal = readNumber(text.match(/Total\s+Pieces\s*:\s*([\d.,]+)/i)?.[1]);
   if (Number.isFinite(printedTotal)) order.sourcePrintedQuantity = printedTotal;
-  if (Number.isFinite(printedTotal) && printedTotal !== order.totalPieces) result.warnings?.push("PDF \u5217\u5370\u7E3D\u4EF6\u6578\u8207\u8FA8\u8B58\u5408\u8A08\u4E0D\u4E00\u81F4\uFF0C\u8ACB\u6838\u5C0D\u3002");
+  if (Number.isFinite(printedTotal) && printedTotal !== order.totalPieces) return { success: false, error: `CSQ PO \u660E\u7D30\u50C5\u8B80\u5230 ${order.totalPieces} \u4EF6\uFF0C\u8207\u539F\u59CB PO ${printedTotal} \u4EF6\u4E0D\u7B26\uFF0C\u8ACB\u63D0\u4F9B\u5B8C\u6574\u539F\u59CB PO\uFF1B\u672A\u532F\u5165\u4E0D\u5B8C\u6574\u8A02\u55AE\u3002` };
   const totals = [...text.matchAll(/\bUSD\s+([\d.,]+(?:[\t ]+[\d.,]+)*)/gi)];
   if (totals.length === 1) {
     order.sourcePrintedAmount = readNumber(totals[0][1].trim().split(/\s+/).at(-1));
-    if (Math.abs(order.totalAmountUSD - order.sourcePrintedAmount) > 0.01) result.warnings?.push("\u660E\u7D30\u8207 PO \u5217\u5370\u7E3D\u91D1\u984D\u4E0D\u7B26\uFF0C\u8ACB\u6838\u5C0D\u5B8C\u6574\u9801\u6578\u3002");
+    if (Math.abs(order.totalAmountUSD - order.sourcePrintedAmount) > 0.01) return { success: false, error: "CSQ PO \u660E\u7D30\u8207\u539F\u59CB PO \u7E3D\u91D1\u984D\u4E0D\u7B26\uFF0C\u8ACB\u6838\u5C0D\u5B8C\u6574\u9801\u6578\uFF1B\u672A\u532F\u5165\u4E0D\u5B8C\u6574\u8A02\u55AE\u3002" };
   }
+  if (records.some((record) => /-AOP\d*$/.test(record.vendorPart) && (record.unresolved || record.values.reduce((sum, value) => sum + (value ? readNumber(value) : 0), 0) !== readNumber(record.quantity)))) return { success: false, error: "CSQ \u5370\u82B1\u6B3E\u8272\u7684\u5C3A\u78BC\u4EF6\u6578\u8207 PO \u5217\u5370\u4EF6\u6578\u4E0D\u7B26\uFF0C\u8ACB\u6838\u5C0D\u539F\u59CB\u5C3A\u78BC\u6B04\u4F4D\uFF1B\u672A\u532F\u5165\u4E0D\u5B8C\u6574\u8A02\u55AE\u3002" };
   result.recognizedFormat = "CSQ \u6B3E\u8272\uFF0F\u5C3A\u78BC\u5206\u5217 PO";
   return result;
 }
@@ -844,9 +913,20 @@ function readCsqBackup(text) {
   const saved = JSON.parse(text);
   const source = saved?.order;
   if (saved?.account === "CSQ" && saved?.version === 1 && source?.poNumber && Array.isArray(source.items) && source.items.length) {
+    if (source.requiresAntiCounterfeitLabel !== void 0 && typeof source.requiresAntiCounterfeitLabel !== "boolean") throw new Error("\u9632\u507D\u6A19\u8A2D\u5B9A\u683C\u5F0F\u4E0D\u7B26\u3002");
+    if (source.normalCartonQuantity !== void 0 && (!Number.isInteger(source.normalCartonQuantity) || source.normalCartonQuantity < 1)) throw new Error("\u55AE\u8272\u55AE\u78BC\u6BCF\u7BB1\u4EF6\u6578\u9808\u70BA\u5927\u65BC 0 \u7684\u6574\u6578\u3002");
     if (source.corrections !== void 0 && (!Array.isArray(source.corrections) || source.corrections.some((c) => !c || !["itemNo", "unitPriceUSD", "description"].includes(c.field) || ["id", "date", "itemId", "originalValue", "correctedValue", "reason"].some((k) => typeof c[k] !== "string")))) throw new Error("\u8A02\u55AE\u66F4\u6B63\u7D00\u9304\u683C\u5F0F\u4E0D\u7B26\u3002");
     if (["season", "brand", "series"].some((k) => source[k] !== void 0 && typeof source[k] !== "string") || source.rmbPerUsd !== void 0 && (!Number.isFinite(source.rmbPerUsd) || source.rmbPerUsd <= 0)) throw new Error("\u8A02\u55AE\u5B63\u5225\u6216\u6210\u672C\u532F\u7387\u683C\u5F0F\u4E0D\u7B26\u3002");
+    const checkTerms = (terms) => {
+      if (terms !== void 0 && (!terms || typeof terms !== "object" || Array.isArray(terms) || ["payment", "trade", "place", "reference"].some((k) => terms[k] !== void 0 && typeof terms[k] !== "string"))) throw new Error("\u5DE5\u5EE0\u4EA4\u6613\u689D\u6B3E\u683C\u5F0F\u4E0D\u7B26\u3002");
+    };
+    checkTerms(source.factoryTermsSettings);
+    if (source.factoryTradeTerms !== void 0 && typeof source.factoryTradeTerms !== "string") throw new Error("\u5DE5\u5EE0\u4EA4\u6613\u689D\u4EF6\u683C\u5F0F\u4E0D\u7B26\u3002");
+    if (source.factoryPurchaseOptions) for (const option of Object.values(source.factoryPurchaseOptions)) checkTerms(option?.terms);
     for (const item of source.items) {
+      if (item.erpItemNo !== void 0 && typeof item.erpItemNo !== "string") throw new Error("ERP \u5C3A\u78BC\u54C1\u865F\u683C\u5F0F\u4E0D\u7B26\u3002");
+      if (item.factoryText !== void 0 && (!item.factoryText || typeof item.factoryText !== "object" || typeof item.factoryText.chineseName !== "string" || typeof item.factoryText.chineseSpec !== "string")) throw new Error("\u5DE5\u5EE0\u4E2D\u6587\u8CC7\u6599\u683C\u5F0F\u4E0D\u7B26\u3002");
+      if (item.composition !== void 0 && typeof item.composition !== "string" || item.compositionSource !== void 0 && !["po", "product", "erp", "manual"].includes(item.compositionSource)) throw new Error("\u8A02\u55AE\u9762\u6599\u6216\u4F86\u6E90\u683C\u5F0F\u4E0D\u7B26\u3002");
       if (!item.itemNo || !Array.isArray(item.sizes) || !Array.isArray(item.colors) || !Number.isFinite(item.totalQuantity) || item.totalQuantity < 0 || !Number.isFinite(item.unitPriceUSD) || item.unitPriceUSD < 0 || !Number.isFinite(item.unitPriceRMB) || item.unitPriceRMB < 0) throw new Error("\u8A02\u55AE\u5099\u4EFD\u54C1\u9805\u683C\u5F0F\u4E0D\u5B8C\u6574\u3002");
       for (const color of item.colors) if (!color.quantitiesBySize || !Number.isFinite(color.totalQuantity) || Object.values(color.quantitiesBySize).some((q) => typeof q !== "number" || !Number.isFinite(q) || q < 0)) throw new Error("\u8A02\u55AE\u5099\u4EFD\u5C3A\u78BC\u683C\u5F0F\u4E0D\u5B8C\u6574\u3002");
     }
@@ -882,8 +962,9 @@ function readCsqBackup(text) {
     item.sizes = line.size_order;
     item.vendorPart = line.vendor_part;
     item.customerItemCodes = line.customer_item_codes;
-    item.description = line.desc;
     item.styleName = line.desc;
+    item.description = typeof line.composition === "string" ? line.composition : line.desc;
+    if (typeof line.composition === "string") item.composition = line.composition;
     item.colors[0].quantitiesBySize = Object.fromEntries(item.sizes.map((size) => [size, line.sizes?.[size] || 0]));
     if (line.pack_type === "multiple" || data.header.pack_type === "multiple") {
       item.isPrepack = true;
@@ -962,7 +1043,8 @@ function syncTracking(r, w) {
     bulk.shipmentStatus = "PLANNED";
     bulk.shipmentDate = bulk.shipmentPlannedDate || "";
   }
-  return { ...r, season: order?.season || r.season, internalFields: fields, bulk, status: qty > 0 ? qty >= r.quantity ? "\u5DF2\u51FA\u8CA8" : "\u90E8\u5206\u51FA\u8CA8" : r.status === "\u5DF2\u51FA\u8CA8" || r.status === "\u90E8\u5206\u51FA\u8CA8" ? "\u5C1A\u672A\u51FA\u8CA8" : r.status, shippedQuantity: qty };
+  if (fields._shipmentClosed === "Y") bulk.shipmentStatus = "SHIPPED";
+  return { ...r, season: order?.season || r.season, internalFields: fields, bulk, status: fields._shipmentClosed === "Y" ? "\u5DF2\u51FA\u8CA8" : qty > 0 ? qty >= r.quantity ? "\u5DF2\u51FA\u8CA8" : "\u90E8\u5206\u51FA\u8CA8" : r.status === "\u5DF2\u51FA\u8CA8" || r.status === "\u90E8\u5206\u51FA\u8CA8" ? "\u5C1A\u672A\u51FA\u8CA8" : r.status, shippedQuantity: qty };
 }
 
 // src/utils/factoryDirectory.ts
@@ -1040,16 +1122,26 @@ function emptyWorkspace() {
   return { version: 1, orders: [], tracking: {}, developments: [], shipments: [], productNotes: {} };
 }
 function normalizeWorkspace(w) {
-  return { ...w, orders: w.orders.map(normalizeClassification), developments: w.developments.map(normalizeClassification), productNotes: Object.fromEntries(Object.entries(w.productNotes).map(([key2, value]) => [key2, normalizeClassification(value)])), tracking: Object.fromEntries(Object.entries(w.tracking).map(([key2, value]) => [key2, { ...normalizeClassification(value), ...value.internalFields ? { internalFields: { ...value.internalFields, ...value.internalFields.E !== void 0 ? { E: cleanSeries(value.internalFields.E) } : {} } } : {} }])) };
+  return { ...w, ...w.classificationOptions ? { classificationOptions: Object.fromEntries(Object.entries(w.classificationOptions).map(([id, o]) => [id, { ...o, value: o.kind === "series" ? canonicalSeries(o.value) : o.kind === "brand" ? canonicalBrand(o.value) : o.kind === "season" ? canonicalSeason(o.value) : o.value.trim().toUpperCase() }])) } : {}, orders: w.orders.map(normalizeClassification), developments: w.developments.map(normalizeClassification), productNotes: Object.fromEntries(Object.entries(w.productNotes).map(([key2, value]) => [key2, normalizeClassification(value)])), tracking: Object.fromEntries(Object.entries(w.tracking).map(([key2, value]) => [key2, { ...normalizeClassification(value), ...value.internalFields ? { internalFields: { ...value.internalFields, ...value.internalFields.D !== void 0 ? { D: canonicalBrand(value.internalFields.D) } : {}, ...value.internalFields.E !== void 0 ? { E: cleanSeries(value.internalFields.E) } : {} } } : {} }])) };
 }
 function upsertOrder(w, order) {
-  return normalizeWorkspace({ ...w, orders: [order, ...w.orders.filter((o) => o.poNumber !== order.poNumber)] });
+  const removedOrders = w.removedOrders ? { ...w.removedOrders } : void 0;
+  if (removedOrders) delete removedOrders[order.poNumber];
+  return normalizeWorkspace({ ...w, ...removedOrders ? { removedOrders } : {}, orders: [order, ...w.orders.filter((o) => o.poNumber !== order.poNumber)] });
 }
 function loadWorkspace(raw, current) {
   let w = emptyWorkspace();
   if (raw) {
     const p = JSON.parse(raw);
     if (p.version !== 1 || !Array.isArray(p.orders) || !Array.isArray(p.shipments) || !Array.isArray(p.developments) || !p.tracking || Array.isArray(p.tracking) || !p.productNotes || Array.isArray(p.productNotes)) throw new Error("\u5DE5\u4F5C\u7AD9\u5099\u4EFD\u683C\u5F0F\u4E0D\u7B26");
+    if (p.classificationOptions !== void 0 && (!p.classificationOptions || typeof p.classificationOptions !== "object" || Array.isArray(p.classificationOptions) || Object.entries(p.classificationOptions).some(([id, o]) => !id || ["__proto__", "constructor", "prototype"].includes(id) || !o || !["brand", "season", "series", "factory"].includes(o.kind) || typeof o.value !== "string" || !o.value.trim() || o.value.length > 120 || /[\u0000-\u001f]/.test(o.value)))) throw new Error("\u5206\u985E\u9078\u9805\u683C\u5F0F\u4E0D\u7B26");
+    if (p.removedOrders !== void 0) {
+      if (!p.removedOrders || typeof p.removedOrders !== "object" || Array.isArray(p.removedOrders)) throw new Error("\u5DF2\u79FB\u9664\u8A02\u55AE\u683C\u5F0F\u4E0D\u7B26");
+      p.removedOrders = Object.fromEntries(Object.entries(p.removedOrders).map(([po, o]) => {
+        if (!po || ["__proto__", "constructor", "prototype"].includes(po) || o?.poNumber !== po) throw new Error("\u5DF2\u79FB\u9664\u8A02\u55AE\u7DE8\u865F\u4E0D\u7B26");
+        return [po, readCsqBackup(JSON.stringify({ version: 1, account: "CSQ", order: o }))];
+      }));
+    }
     p.orders = [...new Map(p.orders.map((o) => {
       const order = readCsqBackup(JSON.stringify({ version: 1, account: "CSQ", order: o }));
       return [order.poNumber, order];
@@ -1057,15 +1149,18 @@ function loadWorkspace(raw, current) {
     if (p.productMappings !== void 0 && (!Array.isArray(p.productMappings) || p.productMappings.some((v) => !v || typeof v.id !== "string" || typeof v.itemNo !== "string" || ["styleNameEN", "chineseName", "chineseSpec"].some((k) => typeof v[k] !== "string") || [v.customerPriceUSD, v.factoryPrice].some((n) => n !== void 0 && (!Number.isFinite(n) || n < 0))))) throw new Error("\u7522\u54C1\u5C0D\u7167\u8CC7\u6599\u683C\u5F0F\u4E0D\u7B26");
     if (p.shipments.some((s) => ["id", "poNumber", "scNumber", "invoiceNo", "date", "customer", "address", "vessel", "container", "fromPort", "toPort", "remarks"].some((key2) => typeof s[key2] !== "string") || typeof s.confirmed !== "boolean" || !Array.isArray(s.lines) || s.lines.some((l) => ["id", "itemNo", "description", "color", "unit", "supplier"].some((key2) => typeof l[key2] !== "string") || [l.planned, l.unitPriceUSD, l.cartons, l.netWeight, l.grossWeight, l.cbm].some((n) => !Number.isFinite(n) || n < 0) || !l.sizes || Object.values(l.sizes).some((q) => typeof q !== "number" || !Number.isFinite(q) || q < 0 || !Number.isInteger(q)))) || p.developments.some((d) => ["id", "itemNo", "name", "brand", "season", "supplier", "sampleStatus", "targetDate", "sentDate", "currency", "remarks"].some((key2) => typeof d[key2] !== "string") || !Number.isFinite(d.price) || d.price < 0) || Object.values(p.productNotes).some((n) => [n.brand, n.season, n.remarks].some((v) => typeof v !== "string")) || Object.values(p.tracking).some((row) => Object.entries(row).some(([k, v]) => ["bulk", "internalFields"].includes(k) ? !v || typeof v !== "object" || Array.isArray(v) || Object.values(v).some((x) => typeof x !== "string") : typeof v !== "string"))) throw new Error("\u5DE5\u4F5C\u7AD9\u5099\u4EFD\u8CC7\u6599\u4E0D\u5B8C\u6574");
     if (p.shipments.some((s) => s.factoryNotice !== void 0 && (!s.factoryNotice || typeof s.factoryNotice !== "object" || Array.isArray(s.factoryNotice) || Object.values(s.factoryNotice).some((v) => typeof v !== "string")))) throw new Error("\u5DE5\u5EE0\u51FA\u8CA8\u901A\u77E5\u8CC7\u6599\u683C\u5F0F\u4E0D\u7B26");
+    if (Object.entries(p.productNotes).some(([code2, n]) => !code2 || ["__proto__", "constructor", "prototype"].includes(code2) || [n.customerPrice, n.factoryPrice].some((v) => v !== void 0 && (!Number.isFinite(v) || v < 0)) || ["name", "spec", "chineseName", "chineseSpec", "createdFromPo", "series", "customerCurrency", "supplierCode", "factoryCurrency"].some((k) => n[k] !== void 0 && typeof n[k] !== "string") || n.archived !== void 0 && typeof n.archived !== "boolean" || n.photo !== void 0 && (typeof n.photo !== "string" || n.photo.length > 14e5 || !/^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(n.photo)))) throw new Error("\u6B3E\u5F0F\u8CC7\u6599\u6216\u7167\u7247\u683C\u5F0F\u4E0D\u7B26");
+    if (Object.values(p.productNotes).some((n) => n.colorTranslations !== void 0 && (!n.colorTranslations || typeof n.colorTranslations !== "object" || Array.isArray(n.colorTranslations) || Object.entries(n.colorTranslations).some(([key2, value]) => ["__proto__", "constructor", "prototype"].includes(key2) || typeof value !== "string")))) throw new Error("\u4E2D\u6587\u8272\u540D\u683C\u5F0F\u4E0D\u7B26");
+    if (Object.values(p.productNotes).some((n) => n.prices !== void 0 && (!Array.isArray(n.prices) || new Set(n.prices.map((q) => q.id)).size !== n.prices.length || n.prices.some((q) => !q || !q.id || !["customer", "factory"].includes(q.kind) || !Number.isFinite(q.price) || q.price < 0 || ["id", "party", "date", "currency", "unit", "remarks", "createdAt"].some((k) => typeof q[k] !== "string") || ["partyName", "source", "document"].some((k) => q[k] !== void 0 && typeof q[k] !== "string") || !q.party.trim() || !q.currency.trim() || !q.unit.trim() || q.date !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(q.date))) || n.withdrawnPrices !== void 0 && (!n.withdrawnPrices || typeof n.withdrawnPrices !== "object" || Array.isArray(n.withdrawnPrices) || Object.values(n.withdrawnPrices).some((reason) => typeof reason !== "string" || !reason.trim())))) throw new Error("\u50F9\u683C\u6B77\u53F2\u8CC7\u6599\u683C\u5F0F\u4E0D\u7B26");
     if (p.shipments.some((s) => s.lines.some((l) => l.packingRows !== void 0 && (!Array.isArray(l.packingRows) || l.packingRows.some((r) => !r || typeof r.id !== "string" || typeof r.measurement !== "string" || [r.from, r.to, r.netWeight, r.grossWeight, r.cbm].some((n) => typeof n !== "number" || !Number.isFinite(n) || n < 0) || !r.sizes || Object.values(r.sizes).some((q) => typeof q !== "number" || !Number.isInteger(q) || q < 0)))))) throw new Error("\u9010\u7BB1\u88DD\u7BB1\u660E\u7D30\u683C\u5F0F\u4E0D\u7B26");
     if (p.shipments.some((s) => s.confirmed && shipmentIssues(s, p.shipments, p.orders.find((o) => o.poNumber === s.poNumber)).length)) throw new Error("\u5DE5\u4F5C\u7AD9\u5099\u4EFD\u7684\u5DF2\u78BA\u8A8D\u51FA\u8CA8\u9700\u91CD\u65B0\u6838\u5C0D");
     w = p;
   }
-  return current ? upsertOrder(w, current) : normalizeWorkspace(w);
+  return current && !w.removedOrders?.[current.poNumber] ? upsertOrder(w, current) : normalizeWorkspace(w);
 }
 function seasonOf(style) {
   const m = style.toUpperCase().match(/\d([SW])(\d{2})$/);
-  return m ? `${m[1] === "W" ? "FW" : "SS"}${m[2]}` : style.endsWith("CO") ? "\u5E38\u614B\u6B3E" : "";
+  return m ? `${m[1] === "W" ? "FW" : "SS"}${m[1] === "S" && ["04", "06"].includes(m[2]) ? { "04": "24", "06": "26" }[m[2]] : m[2]}` : style.endsWith("CO") ? "\u5E38\u614B\u6B3E" : "";
 }
 function brandOf(value) {
   const text = value.trim().replace(/\s+/g, " ");
@@ -1077,17 +1172,18 @@ function sourceLabels(...values) {
 }
 function trackingRows(w, refs, erp) {
   const rows = /* @__PURE__ */ new Map();
-  for (const r of refs?.tracking || []) rows.set(r.id, { ...r, ...w.tracking[r.id], internalFields: { ...r.internalFields, ...w.tracking[r.id]?.internalFields }, bulk: { ...r.bulk, ...w.tracking[r.id]?.bulk } });
+  const closed = new Set(refs?.completedShipmentOrders || []);
+  for (const r of refs?.tracking || []) rows.set(r.id, { ...r, ...w.tracking[r.id], internalFields: { ...r.internalFields, ...closed.has(JSON.stringify([r.scNumber, r.poNumber])) ? { _shipmentClosed: "Y" } : {}, ...w.tracking[r.id]?.internalFields }, bulk: { ...r.bulk, ...w.tracking[r.id]?.bulk } });
   for (const o of w.orders) for (const itemNo of [...new Set(o.items.map((i) => i.itemNo))]) {
     const items = o.items.filter((i2) => i2.itemNo === itemNo), i = items[0];
     const candidates = [...rows.values()].filter((r) => r.poNumber === o.poNumber && r.itemNo === itemNo && r.scNumber === o.piNumber);
     const prior = candidates.length === 1 ? candidates[0] : void 0;
     if (prior) rows.delete(prior.id);
     const id = `order:${o.poNumber}|${itemNo}`;
-    rows.set(id, { unit: "PO \u55AE\u4F4D", season: seasonOf(itemNo), brand: "", status: "\u5DF2\u532F\u5165\u5F85\u6838\u5C0D", tp: "", labDip: "", fitSample: "", pps: "", fabricTestDate: "", fabricTestStatus: "\u5F85\u5B89\u6392", cutting: "", sewing: "", shippingSample: "", inspection: "", packing: "", remarks: "", ...prior, ...w.tracking[prior?.id || ""], ...w.tracking[id], bulk: { ...prior?.bulk, ...w.tracking[prior?.id || ""]?.bulk, ...w.tracking[id]?.bulk }, internalFields: { ...prior?.internalFields, ...w.tracking[prior?.id || ""]?.internalFields, ...w.tracking[id]?.internalFields }, id, scNumber: o.piNumber, poNumber: o.poNumber, itemNo, company: o.orderingCompany || o.customerName, supplier: items.map((i2) => i2.factoryProduct?.supplier || o.factorySupplier || prior?.supplier || "").filter((s, n, a) => a.indexOf(s) === n).join(" / "), customerDate: o.shipmentDate, factoryDate: o.factoryShipDate, quantity: items.reduce((n, i2) => n + i2.totalQuantity, 0), source: o.sourceFileName || "\u672C\u6A5F PO" });
+    rows.set(id, { unit: "PO \u55AE\u4F4D", season: seasonOf(itemNo), brand: "", status: "\u5DF2\u532F\u5165\u5F85\u6838\u5C0D", tp: "", labDip: "", fitSample: "", pps: "", fabricTestDate: "", fabricTestStatus: "\u5F85\u5B89\u6392", cutting: "", sewing: "", shippingSample: "", inspection: "", packing: "", remarks: "", ...prior, ...w.tracking[prior?.id || ""], ...w.tracking[id], bulk: { ...prior?.bulk, ...w.tracking[prior?.id || ""]?.bulk, ...w.tracking[id]?.bulk }, internalFields: { ...closed.has(JSON.stringify([o.piNumber, o.poNumber])) ? { _shipmentClosed: "Y" } : {}, ...prior?.internalFields, ...w.tracking[prior?.id || ""]?.internalFields, ...w.tracking[id]?.internalFields }, id, scNumber: o.piNumber, poNumber: o.poNumber, itemNo, company: o.orderingCompany || o.customerName, supplier: items.map((i2) => i2.factoryProduct?.supplier || o.factorySupplier || prior?.supplier || "").filter((s, n, a) => a.indexOf(s) === n).join(" / "), customerDate: o.shipmentDate, factoryDate: o.factoryShipDate, quantity: items.reduce((n, i2) => n + i2.totalQuantity, 0), source: o.sourceFileName || "\u672C\u6A5F PO" });
   }
   return normalizeTrackingFactories([...rows.values()].map((r) => {
-    const synced = syncTracking(r, w), order = w.orders.find((o) => o.poNumber === r.poNumber && o.piNumber === r.scNumber), series = cleanSeries(order?.series || r.series || r.internalFields?.E || r.brand), brand = order?.brand || r.internalFields?.D || brandOf(series);
+    const synced = syncTracking(r, w), order = w.orders.find((o) => o.poNumber === r.poNumber && o.piNumber === r.scNumber), series = cleanSeries(order?.series || r.series || r.internalFields?.E || r.brand), brand = canonicalBrand(order?.brand || r.internalFields?.D || brandOf(series));
     return { ...synced, brand, series, internalFields: { ...synced.internalFields, D: brand, E: series, C: synced.season } };
   }), erp);
 }

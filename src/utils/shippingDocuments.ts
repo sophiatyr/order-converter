@@ -6,7 +6,7 @@ import {amountToEnglishWords} from './numberToWords';
 export interface ShippingRow {height:number;cells:{value:ExcelJS.CellValue;style:Partial<ExcelJS.Style>}[]}
 export interface ShippingLayout {columns:number[];pageSetup:Partial<ExcelJS.PageSetup>;header:ShippingRow[];patterns:ShippingRow[];tail:ShippingRow[]}
 export interface ShippingTemplates {version:1;invoice:ShippingLayout;packing:ShippingLayout;weight:ShippingLayout}
-const company="SPORTS KITE INT'L CO., LTD.";
+const company="SPORTS KITE INTERNATIONAL CO., LTD.";
 const copy=<T,>(v:T):T=>structuredClone(v);
 const date=(s:string)=>s?new Date(s+'T00:00:00').toLocaleDateString('en-US',{day:'2-digit',month:'short',year:'numeric'}):'';
 function pattern(ws:ExcelJS.Worksheet,row:number,t:ShippingRow,values?:ExcelJS.CellValue[],shift=0){ws.getRow(row).height=t.height;t.cells.forEach((c,i)=>{const col=i+1+(i>=11?shift:0);ws.getCell(row,col).style=copy(c.style);ws.getCell(row,col).value=values?values[i]??null:c.value;});}

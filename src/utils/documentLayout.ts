@@ -34,7 +34,7 @@ export function layoutToRows(words: PositionedText[]): string[][] {
       sizeColumns = sizes;
       return line.map(c => c.text);
     }
-    if (sizeColumns && (line.some(c => /^(MULTIPLO|MULTIPLE|RATIO)/i.test(c.text)) || (line.some(c => /^\d+(?:\/\d+)*$/.test(c.text)) && line.some(c => /\b(PZ|PCS|PC|EA)\b/i.test(c.text))))) {
+    if (sizeColumns && (line.some(c => /^(MULTIPLO|MULTIPLE|RATIO)/i.test(c.text)) || (line.some(c => /^(?:\d+(?:\/\d+)*|AOP\d*)$/.test(c.text)) && line.some(c => /\b(PZ|PCS|PC|EA)\b/i.test(c.text))))) {
       // CSQ quantities are right aligned. Assign original tokens by their centres
       // before joining nearby words; header starts can put 80 and 190 in one cell.
       const centres = sizeColumns.map(c => c.x + c.width / 2);

@@ -22,7 +22,8 @@ if(progress){const book=read(progress);if(book){const sheet=book.Sheets[book.She
 for(const file of files.filter(f=>f.module==='訂單追蹤'&&f!==progress&&/\.xlsx?$/i.test(f.name))){const book=read(file);if(!book)continue;const s=book.Sheets['CURRENT BULK'];if(s){const rows=XLSX.utils.sheet_to_json(s,{header:1,defval:''});schemas.push({module:'訂單追蹤',name:file.name,fields:(rows[4]||[]).map(text).filter(Boolean)});}}
 const selected=files.filter(f=>f.module==='出貨作業'&&(/Order Tracking/.test(f.path)||/01261-(PK|WEIGHT)/.test(f.name))&&/\.xlsx?$/i.test(f.name));
 const seen=new Set();for(const file of selected){if(seen.has(file.name))continue;seen.add(file.name);const book=read(file);if(!book)continue;const rows=XLSX.utils.sheet_to_json(book.Sheets[book.SheetNames[0]],{header:1,defval:''});const row=rows.find(r=>r.some(c=>/TOTAL CTNS|CARTON NR|S\/C NO\./.test(text(c))));schemas.push({module:'出貨作業',name:file.name,fields:(row||[]).map(text).filter(Boolean)});}
-const snapshot={version:1,updatedAt:new Date().toISOString(),files,tracking,schemas,warnings};
+const existing=fs.existsSync('public/csq-workspace-references.json')?JSON.parse(fs.readFileSync('public/csq-workspace-references.json','utf8')):{};
+const snapshot={completedShipmentOrders:existing.completedShipmentOrders||[],version:1,updatedAt:new Date().toISOString(),files,tracking,schemas,warnings};
 if(fs.existsSync(root))fs.writeFileSync('public/csq-workspace-references.json',JSON.stringify(snapshot));
 console.log(`Workspace references: ${files.length} files, ${tracking.length} progress lines, ${warnings.length} unreadable files.`);
 

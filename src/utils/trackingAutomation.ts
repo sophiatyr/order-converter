@@ -4,7 +4,7 @@ export function localToday(){const d=new Date();return `${d.getFullYear()}-${Str
 export function activeTrackingRows(rows:TrackingRecord[]){
  const orders=new Map<string,TrackingRecord[]>(),key=(r:TrackingRecord)=>JSON.stringify([r.scNumber,r.poNumber]);
  for(const r of rows)orders.set(key(r),[...(orders.get(key(r))||[]),r]);
- const complete=new Set([...orders].filter(([,items])=>items.every(r=>r.quantity>0&&r.status==='已出貨'&&(r.shippedQuantity||0)>=r.quantity)).map(([id])=>id));
+ const complete=new Set([...orders].filter(([,items])=>items.every(r=>r.internalFields?._shipmentClosed==='Y'||r.quantity>0&&r.status==='已出貨'&&(r.shippedQuantity||0)>=r.quantity)).map(([id])=>id));
  return rows.filter(r=>!complete.has(key(r)));
 }
 export function daysToFactory(value:string,today=localToday()){
@@ -34,8 +34,9 @@ export function syncTracking(r:TrackingRecord,w:Workspace):TrackingRecord{
  const lines=shipments.flatMap(s=>s.lines.filter(l=>l.itemNo===r.itemNo));const qty=lines.reduce((n,l)=>n+Object.values(l.sizes).reduce((a,b)=>a+b,0),0);
  if(qty>0){const s=shipments.at(-1)!;bulk.shipmentStatus=qty>=r.quantity?'SHIPPED':'PLANNED';bulk.shipmentDate=qty>=r.quantity?s.date:bulk.shipmentPlannedDate||'';fields.AK=s.date;fields.AO=[...new Set(shipments.map(s=>s.vessel).filter(Boolean))].join(' / ');fields.AP=String(lines.reduce((n,l)=>n+l.cbm,0));fields.AQ=shipments.map(s=>s.invoiceNo).join(' / ');}
  else if(r.season==='SS27'||order){bulk.shipmentStatus='PLANNED';bulk.shipmentDate=bulk.shipmentPlannedDate||'';}
+ if(fields._shipmentClosed==='Y')bulk.shipmentStatus='SHIPPED';
  // An automatic link is recalculated each time; reverting a shipment to draft removes it.
- return {...r,season:order?.season||r.season,internalFields:fields,bulk,status:qty>0?(qty>=r.quantity?'已出貨':'部分出貨'):r.status==='已出貨'||r.status==='部分出貨'?'尚未出貨':r.status,shippedQuantity:qty};
+ return {...r,season:order?.season||r.season,internalFields:fields,bulk,status:fields._shipmentClosed==='Y'?'已出貨':qty>0?(qty>=r.quantity?'已出貨':'部分出貨'):r.status==='已出貨'||r.status==='部分出貨'?'尚未出貨':r.status,shippedQuantity:qty};
 }
 export function trackingTargets(rows:TrackingRecord[],scope:'style'|'order'|'filter',query:string,selected:string[]=[]){
  if(scope!=='filter'&&!query.trim()&&!selected.length)return [];

@@ -52,7 +52,7 @@ assert.equal(ambiguous.order?.items[0].colors[0].quantitiesBySize.S,0);
 console.log('PASS: CSQ PDF right-aligned size quantities, both six-colour PO totals, page boundaries and ambiguous number rejection.');
 import fs from 'node:fs';
 const tennisPages:string[][][]=JSON.parse(fs.readFileSync('tests/fixtures/csq-tennis-1636-rows.json','utf8'));
-const tennisRows=[['Order number','26OF001636','Delivery terms','FOB'],['Date','26/01/2026','Ship date on board','23/07/2026'],['Terms of payment','90LC'],['Vendor part number','Description'],...tennisPages.flatMap((page,n)=>n?[[],['Vendor account','Vendor invoice'],['Page',`${n+1} of 5`],...page]:page)];
+const tennisRows=[['Page','1 of 5'],['Order number','26OF001636','Delivery terms','FOB'],['Date','26/01/2026','Ship date on board','23/07/2026'],['Terms of payment','90LC'],['Vendor part number','Description'],...tennisPages.flatMap((page,n)=>n?[[],['Vendor account','Vendor invoice'],['Page',`${n+1} of 5`],...page]:page)];
 // All 19 source lines, checked against the five-page PDF, not just grand totals.
 const expectedTennis=[
  ['ABCTM030CO','001','S4133127',1000,2.35,[180,328,316,176,0,0,0]],

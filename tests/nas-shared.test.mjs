@@ -14,6 +14,23 @@ try{
  const login=await call('/api/shared/login','',{username:'testadmin',password:'Test-only-password-2026'}),admin=login.r.headers.get('set-cookie').split(';')[0];assert.ok(login.r.headers.get('set-cookie').includes('HttpOnly'));assert.ok(login.r.headers.get('set-cookie').includes('SameSite=Strict'));
  assert.equal((await call('/api/shared/users',admin,{username:'colleague',name:'測試同事',role:'member',password:'Colleague-test-only-2026'})).r.status,200);
  const memberLogin=await call('/api/shared/login','',{username:'colleague',password:'Colleague-test-only-2026'}),member=memberLogin.r.headers.get('set-cookie').split(';')[0];
+ assert.equal((await call('/api/shared/users',admin,{username:'reader',name:'測試瀏覽者',role:'viewer',password:'Viewer-test-only-2026'})).r.status,200);
+ const viewerLogin=await call('/api/shared/login','',{username:'reader',password:'Viewer-test-only-2026'}),viewer=viewerLogin.r.headers.get('set-cookie').split(';')[0];
+ assert.equal(viewerLogin.data.user.role,'viewer');
+ for(const route of ['/api/shared/me','/api/shared/workspace','/csq-workspace-references.json','/erp-products.json'])assert.equal((await call(route,viewer)).r.status,200);
+ const viewerUser=db.users().find(u=>u.username==='reader'),viewerRevision=db.revision();
+ const viewerChanges=[{kind:'tracking',id:'viewer-write',before:null,after:{tp:'2026-10-13'}}];
+ assert.equal((await call('/api/shared/workspace',viewer,{changes:viewerChanges},'PATCH')).r.status,403);
+ assert.equal((await call('/api/shared/restore',viewer,{changes:viewerChanges})).r.status,403);
+ assert.equal((await call('/api/shared/backup',viewer,{})).r.status,403);
+ assert.equal((await call('/api/shared/users',viewer)).r.status,403);
+ assert.equal((await call('/api/shared/users',viewer,{username:'forbidden',name:'No',role:'admin',password:'Viewer-test-only-2026'})).r.status,403);
+ assert.equal((await call('/api/shared/users/'+viewerUser.id,viewer,{role:'admin'},'PATCH')).r.status,403);
+ assert.throws(()=>db.apply(viewerChanges,viewerUser),e=>e.code==='FORBIDDEN');
+ assert.equal(db.revision(),viewerRevision);assert.ok(!db.workspace().tracking['viewer-write']);
+ assert.equal((await call('/api/shared/users/'+viewerUser.id,admin,{role:'member'},'PATCH')).r.status,200);
+ assert.equal((await call('/api/shared/me',viewer)).r.status,401,'Role changes invalidate prior sessions');
+ assert.equal((await call('/api/shared/users/'+viewerUser.id,admin,{role:'viewer'},'PATCH')).r.status,200);
  assert.equal((await call('/api/shared/users',member)).r.status,403);assert.equal((await call('/api/shared/backup',member,{})).r.status,403);assert.equal((await call('/api/shared/restore',member,{changes:[]})).r.status,403);
  const malicious=await fetch(base+'/api/shared/workspace',{method:'PATCH',headers:{Cookie:member,Origin:'http://untrusted.invalid','Content-Type':'application/json'},body:'{"changes":[]}'});assert.equal(malicious.status,403);
  const initial=(await call('/api/shared/workspace',admin)).data.workspace,next=structuredClone(initial);next.tracking['test-record']={bulk:{ppsStatus:'APPROVED',fabricTestStatus:'TO BE TESTED'}};
@@ -25,8 +42,11 @@ try{
  const revision=db.revision(),bad=[{kind:'tracking',id:'valid',before:null,after:{tp:'2026-10-12'}},{kind:'shipments',id:'bad',before:null,after:{id:'bad'}}];assert.equal((await call('/api/shared/workspace',admin,{changes:bad},'PATCH')).r.status,400);assert.equal(db.revision(),revision);assert.ok(!db.workspace().tracking.valid,'Failed transactions must roll back every record');
  const pollution=[{kind:'tracking',id:'__proto__',before:null,after:{tp:'test'}}];assert.equal((await call('/api/shared/workspace',admin,{changes:pollution},'PATCH')).r.status,400);
  const refs=(await call('/csq-workspace-references.json',member)).data,ss=refs.tracking.filter(r=>r.season==='SS27');assert.equal(new Set(ss.map(r=>r.poNumber)).size,93);assert.equal(ss.reduce((n,r)=>n+r.quantity,0),644397);
+ const optionsChange=[{kind:'classificationOptions',id:'series:ADMIRAL BEACHWEAR',before:null,after:{kind:'series',value:'ADMIRAL BEACHWEAR WOMAN'}}];assert.equal((await call('/api/shared/workspace',admin,{changes:optionsChange},'PATCH')).r.status,200);assert.equal(db.workspace().classificationOptions['series:ADMIRAL BEACHWEAR'].value,'ADMIRAL BEACHWEAR');
+ const removedOrder=refs.orders[0];assert.equal((await call('/api/shared/workspace',admin,{changes:[{kind:'removedOrders',id:removedOrder.poNumber,before:null,after:removedOrder}]},'PATCH')).r.status,200);assert.equal(db.workspace().removedOrders[removedOrder.poNumber].poNumber,removedOrder.poNumber);
  const backup=await call('/api/shared/backup',admin,{});assert.equal(backup.r.status,200);assert.equal(Buffer.from(await backup.r.arrayBuffer()).subarray(0,15).toString(),'SQLite format 3');assert.ok(db.db.prepare('SELECT count(*) n FROM audit').get().n>=3);
  const self=db.users().find(u=>u.username==='testadmin');assert.equal((await call('/api/shared/users/'+self.id,admin,{active:false},'PATCH')).r.status,400);
+ assert.equal((await call('/api/shared/users/'+self.id,admin,{role:'viewer'},'PATCH')).r.status,400);
  assert.equal((await call('/api/shared/password',member,{currentPassword:'wrong',newPassword:'New-colleague-test-2026'})).r.status,400);
  assert.equal((await call('/api/shared/password',member,{currentPassword:'Colleague-test-only-2026',newPassword:'New-colleague-test-2026'})).r.status,200);
  assert.equal((await call('/api/shared/workspace',member)).r.status,401);
@@ -34,6 +54,6 @@ try{
  const changedLogin=await call('/api/shared/login','',{username:'colleague',password:'New-colleague-test-2026'});assert.equal(changedLogin.r.status,200);
  const changedCookie=changedLogin.r.headers.get('set-cookie').split(';')[0];await call('/api/shared/logout',changedCookie,{});assert.equal((await call('/api/shared/workspace',changedCookie)).r.status,401);
  await new Promise(r=>listener.close(r));db.close();
- const restarted=createNasServer({dataDir:dir,webRoot:'dist'});assert.equal(restarted.db.workspace().tracking['test-record'].bulk.fabricTestStatus,'APPROVED');assert.equal(restarted.db.reference('csq-workspace-references.json').tracking.filter(r=>r.season==='SS27').length,280);restarted.db.close();
+ const restarted=createNasServer({dataDir:dir,webRoot:'dist'});assert.equal(restarted.db.workspace().tracking['test-record'].bulk.fabricTestStatus,'APPROVED');assert.equal(restarted.db.reference('csq-workspace-references.json').tracking.filter(r=>r.season==='SS27').length,280);assert.equal(restarted.db.workspace().classificationOptions['series:ADMIRAL BEACHWEAR'].value,'ADMIRAL BEACHWEAR');restarted.db.close();
  console.log('NAS integration passed: login, roles, protected reference data, 93 orders, migration, field merge, conflict rejection, transaction rollback, audit, backup and restart persistence.');
 }finally{if(listener.listening)await new Promise(r=>listener.close(r));try{db.close();}catch{}/* Keep test DB in the temporary directory for diagnostics. */}

@@ -10,6 +10,11 @@ export interface Colorway {
 }
 
 export interface OrderItem {
+  erpItemNo?:string; // Confirmed size-specific ERP SKU; itemNo retains the customer style.
+  factoryText?:{chineseName:string;chineseSpec:string};
+  customerPriceRecord?:import('../utils/workspace').ProductPrice;
+  factoryPriceRecord?:import('../utils/workspace').ProductPrice;
+  factoryPriceHistory?:import('../utils/workspace').ProductPrice[];
   erpQuoteKey?: string;
   factoryProduct?: {supplier:string; supplierCode:string; currency:'RMB'|'USD'; price:number; unit:string; quoteDate:string};
   vendorPart?: string;
@@ -20,6 +25,8 @@ export interface OrderItem {
   styleName: string; // e.g. "TSHIRT ARENA B" or "T-SHIRT ABC RUN SS"
   chineseName: string; // e.g. "ARENA男童T恤" or "ABC男士短袖跑步T恤"
   description: string; // e.g. "100%POLYESTER 75D/72F INTERLOCK DRY FIT, 145 GSM"
+  composition?:string; // Original PO Composition, separate from styleName (Description).
+  compositionSource?:'po'|'product'|'erp'|'manual';
   chineseSpec: string; // e.g. "面料:全滌75D/72F普通雙面布+吸濕排汗助劑(務必做到), 布重:145GM/M2"
   sizes: string[]; // e.g. ["6A", "8A", "10A", "12A", "14A"] or ["XS", "S", "M", "L", "XL"]
   unitPriceUSD: number; // e.g. 2.30 (or piece price $2.10)
@@ -49,16 +56,19 @@ export interface BankInfo {
   swiftCode: string;
 }
 
+export interface FactoryTermsSettings {payment?:string;trade?:string;place?:string;reference?:string}
 export interface OrderData {
+  factoryTermsSettings?:FactoryTermsSettings;
+  factoryTradeTerms?:string;
   corrections?: {id:string;date:string;itemId:string;field:'itemNo'|'unitPriceUSD'|'description';originalValue:string;correctedValue:string;reason:string}[];
   season?: string;
   brand?: string;
   series?: string;
   rmbPerUsd?: number;
-  factoryPurchaseOptions?: Record<string, {chineseName?:string; extraFees:{id:string;description:string;amount:number}[];hasDeposit:boolean;depositPercent:number}>;
+  factoryPurchaseOptions?: Record<string, {terms?:FactoryTermsSettings;chineseName?:string; extraFees:{id:string;description:string;amount:number}[];hasDeposit:boolean;depositPercent:number}>;
   factoryExtraFees?: {id:string;description:string;amount:number}[];
   erpFactoryApplied?: boolean;
-  factoryQuantityUnit?: '件'|'雙';
+  factoryQuantityUnit?: '件'|'雙'|'套';
   orderingCompany?: 'CISALFA' | 'FALIS' | 'PREMIUM SPORTS' | 'ITALIAN FITNESS' | 'INTERSPORT' | 'MEDICO';
   sourceFileName?: string;
   sourceReferencePo?: string;
@@ -71,6 +81,8 @@ export interface OrderData {
   sourcePrintedPackQuantity?: number;
   orderType?: 'single_color' | 'multi_color' | 'prepack_kit';
   packingType?: 'NORMAL PACK' | 'MULTIPLE PACK';
+  normalCartonQuantity?: number;
+  requiresAntiCounterfeitLabel?:boolean;
 
   // Company letterhead
   companyHeader?: {

@@ -1,3 +1,6 @@
+import {sizeVariantOrder} from './sizeVariants';
+import {factoryText} from './factoryText';
+import type {Workspace} from './workspace';
 import type { OrderData } from '../types/order';
 import { findCsqReference, type CsqReference } from './csqReferences';
 import {normalizeClassification} from './classification';
@@ -7,6 +10,7 @@ import {applyConfirmedPoCorrections} from './orderCorrections';
 export const CSQ_COMPANIES = ['CISALFA', 'FALIS', 'PREMIUM SPORTS', 'ITALIAN FITNESS', 'INTERSPORT', 'MEDICO'] as const;
 export type CsqCompany = typeof CSQ_COMPANIES[number];
 export const CSQ_PAYMENT_TERMS='100% AMOUNT BY USANCE L/C 90 DAYS.';
+export const FALIS_CUSTOMER_NAME='FALIS 2014 S.R.L A SOCIO UNICO';
 export function chineseFactoryName(name:string){const start=name.search(/[\u3400-\u9fff]/);return start<0?'工廠中文名稱待補':name.slice(start).replace(/\s*[A-Za-z].*$/,'').trim();}
 export function detectCsqCompany(text: string): CsqCompany {
   if (/PREMIUM\s+SPORTS/i.test(text)) return 'PREMIUM SPORTS';
@@ -31,11 +35,11 @@ export function csqOrderNumber(po: string, company: CsqCompany, date = ''): stri
   return company === 'CISALFA' ? `CS${match[1]}${match[2]}` : `CS${match[2]}${company === 'MEDICO' ? 'ME' : 'PS'}`;
 }
 export function normalizeCsqOrder(order: OrderData): OrderData {
-  order=applyConfirmedPoCorrections(normalizeClassification(order));
+  order=sizeVariantOrder(applyConfirmedPoCorrections(normalizeClassification(order)));
   const company = order.orderingCompany || detectCsqCompany(order.customerName);
   return { ...order, customerCode: 'CSQ', orderingCompany: company,
-    paymentTerms:!order.paymentTerms||/^90\s*L\/?C$/i.test(order.paymentTerms.trim())||/^100% AMOUNT BY USANCE L\/C 90 DAYS\.?$/i.test(order.paymentTerms.trim())?CSQ_PAYMENT_TERMS:order.paymentTerms,
-    customerName: company === 'CISALFA' ? 'CISALFA SPORT SPA.' : order.customerName,
+    paymentTerms:!order.paymentTerms||/^90\s*L\/?C$/i.test(order.paymentTerms.trim())||/^L\/?C\s+90\s+DAYS\.?$/i.test(order.paymentTerms.trim())||/^100% AMOUNT BY USANCE L\/C 90 DAYS\.?$/i.test(order.paymentTerms.trim())?CSQ_PAYMENT_TERMS:order.paymentTerms,
+    customerName: company === 'CISALFA' ? 'CISALFA SPORT SPA.' : company === 'FALIS' ? FALIS_CUSTOMER_NAME : order.customerName,
     piNumber: csqOrderNumber(order.poNumber, company, order.poDate) || order.piNumber,
     totalPieces: order.items.reduce((sum, item) => sum + item.totalQuantity, 0),
     totalAmountUSD: order.items.reduce((sum, item) => sum + item.totalQuantity * item.unitPriceUSD, 0),
@@ -52,11 +56,12 @@ export function csqFactoryDate(ship: string): string {
   const last = new Date(Date.UTC(year, month - 1, 0)).getUTCDate();
   return new Date(Date.UTC(year, month - 2, Math.min(day, last))).toISOString().slice(0, 10);
 }
-export function factoryDocument(order: OrderData, references: CsqReference[] = []): OrderData {
+export function factoryDocument(order: OrderData, references: CsqReference[] = [],workspace?:Workspace): OrderData {
   return { ...order, items: order.items.map(item => {
     const reference = findCsqReference(item.itemNo, order.poNumber, references);
-    return { ...item, chineseName: reference?.name || item.chineseName || item.styleName,
-      chineseSpec: reference?.spec || item.description || item.styleName,
+    const text=factoryText(item,workspace?.productNotes[item.itemNo],reference);
+    return { ...item, chineseName:text.name,
+      chineseSpec:text.spec,
       unitPriceUSD: item.factoryUnitPriceUSD || 0, totalAmountUSD: item.totalQuantity * (item.factoryUnitPriceUSD || 0) };
   }) };
 }

@@ -23,7 +23,7 @@ assert.equal(findCsqReference('ABCRM1039', order.poNumber, [ref]), undefined);
 assert.equal(findCsqReference(ref.style, order.poNumber, [ref, {...ref, poNumbers: ['OTHER'], spec: '不同布種'}]), ref);
 assert.equal(findCsqReference(ref.style, 'UNKNOWN', [ref, {...ref, spec: '不同布種'}]), undefined);
 const factory = factoryDocument(order, [ref]);
-assert.equal(factory.items[0].chineseSpec, ref.spec);
+assert.equal(factory.items[0].chineseSpec, order.items[0].description+'\n'+ref.spec);
 assert.equal(factory.items.at(-1)!.chineseSpec, order.items.at(-1)!.description);
 assert.equal(order.items[0].unitPriceUSD, 2.1);
 const details = buildQuantityDetails(order, [ref]);
