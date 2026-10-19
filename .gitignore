@@ -1,4 +1,5 @@
 node_modules/
+release.json.lock
 build/
 dist/
 coverage/

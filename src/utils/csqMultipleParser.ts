@@ -9,7 +9,7 @@ export function readMultipleKits(rows:string[][]):MultipleKit[]{
  const headers=composition.filter(row=>row.some(c=>/^Pieces\/Kit$/i.test(c)));if(headers.length!==1||!headers[0].some(c=>/^Total Pieces$/i.test(c)))throw new Error('Kit composition 欄位不完整');
  const starts=main.flatMap((row,i)=>/^[A-Z][A-Z0-9-]*\/\d+/.test(row[0]||'')?[i]:[]),sales=new Map<string,{vendor:string;packs:number;packPrice:number;amount:number}>();
  for(const [n,start] of starts.entries()){
-  const body=main.slice(start,starts[n+1]??main.length),first=body[0][0].match(/^([A-Z][A-Z0-9-]*\/\d+)/)!;let vendor=first[1];
+  const body=main.slice(start,starts[n+1]??main.length),first=body[0][0].match(/^([A-Z][A-Z0-9-]*\/\d+(?:[-/]\d+)*[-/]?)/)!;let vendor=first[1];
   if(/^\d+$/.test(body[1]?.[0]||'')&&!/\bPZ\b/.test(body[1].join(' ')))vendor+=body[1][0];
   const codes=[...new Set(body.filter(row=>row.length>=2&&code.test(row.at(-1)!)).map(row=>row.at(-1)!))];if(codes.length!==1||sales.has(codes[0]))throw new Error(`${vendor} 客戶 kit code 缺少或重複`);
   const unit=body.filter(row=>/\bPZ\b/.test(row.join(' ')));if(unit.length!==1)throw new Error(`${vendor} 包數／包價列不完整`);
@@ -20,18 +20,25 @@ export function readMultipleKits(rows:string[][]):MultipleKit[]{
  if(!sales.size)throw new Error('未找到混碼包裝主明細');
  const segments=composition.flatMap((row,i)=>code.test(row[0]||'')?[i]:[]),kits:MultipleKit[]=[];let current:MultipleKit|undefined;
  for(const [n,start] of segments.entries()){
-  const body=composition.slice(start,segments[n+1]??composition.length),row=body[0];let vendor=row[2]||'';
-  if(/^\d+$/.test(body[1]?.[0]||''))vendor+=body[1][0];
+  const body=composition.slice(start,segments[n+1]??composition.length),row=[...body[0]];let vendor=row[2]||'';
   const kitSale=sales.get(row[0]);
   if(kitSale){
+   if(/^\d+$/.test(body[1]?.[0]||''))vendor+=body[1][0];
    if(kits.some(k=>k.code===row[0]))throw new Error('Kit code 重複');if(vendor!==kitSale.vendor)throw new Error(`${row[0]} 主表與組成表品號不符`);
    const packs=integer(row.at(-3)!,'Kit 包數'),perPack=integer(row.at(-2)!,'每包件數'),total=integer(row.at(-1)!,'展開件數');
    if(packs!==kitSale.packs||packs*perPack!==total)throw new Error(`${vendor} 包數／每包件數／總件數不符`);
-   const match=vendor.match(/^(.+)\/(\d+)$/)!;current={...kitSale,style:match[1],color:match[2],colorName:'',description:'',code:row[0],component:'',perPack,sizes:{},ratios:{}};kits.push(current);
+   const match=vendor.match(/^([A-Z][A-Z0-9-]*)\/(\d+(?:[-/]\d+)*)$/);if(!match)throw new Error(`${row[0]} Kit 品號格式不完整`);current={...kitSale,style:match[1],color:match[2].replace(/-/g,'/'),colorName:'',description:'',code:row[0],component:'',perPack,sizes:{},ratios:{}};kits.push(current);
   }else{
+   if(current){
+    const expected=`${current.style}-${current.color}`,next=body[1]?.[0]||'';
+    if(vendor+next===expected)vendor+=next;
+    // Some source PDFs place the vendor item number in the description cell.
+    // Accept it only when the exact expected item is present at the end.
+    if(vendor!==expected&&row[1]?.endsWith(' '+expected)){row[1]=row[1].slice(0,-expected.length).trim();row.splice(2,0,expected);vendor=expected;}
+   }
    if(!current||!vendor.includes('-'))throw new Error(`${row[0]} 組成明細缺少 Kit 抬頭`);
    const size=row.at(-3)!.toUpperCase(),ratio=integer(row.at(-2)!,'尺碼配比'),qty=integer(row.at(-1)!,'尺碼件數');
-   const colorText=row.slice(3,-3).join(' '),match=colorText.match(/^(\d+)\s+(.+)$/);if(!match||vendor!==`${current.style}-${current.color}`||match[1]!==current.color)throw new Error(`${current.code} 組成款號或顏色不符`);
+   const colorText=row.slice(3,-3).join(' '),match=colorText.match(/^(\d+(?:\/\d+)*)\s+(.+)$/);if(!match||vendor!==`${current.style}-${current.color}`||match[1]!==current.color)throw new Error(`${current.code} 組成款號或顏色不符`);
    if(!/^(?:\d{1,3}A|XXS|XS|S|M|L|XL|XXL|XXXL|[3-6]XL|UNI)$/.test(size)||size in current.sizes)throw new Error(`${current.code} 尺碼無效或重複`);
    if(ratio*current.packs!==qty)throw new Error(`${current.code} 尺碼配比乘包數與件數不符`);
    // Wrapped vendor digits and wrapped colour names are separate continuations.

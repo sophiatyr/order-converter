@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {createHash} from 'node:crypto';
 import {createNasServer} from '../server/nasServer.mjs';
 import {diffWorkspaces} from '../server/nasDatabase.mjs';
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'csq-nas-test-'));
@@ -9,6 +10,7 @@ const {app,db}=createNasServer({dataDir:dir,webRoot:'dist',adminUsername:'testad
 const listener=app.listen(0,'127.0.0.1');await new Promise(r=>listener.once('listening',r));const base=`http://127.0.0.1:${listener.address().port}`;
 const call=async(route,cookie='',body,method='POST')=>{const r=await fetch(base+route,{headers:{...(cookie?{Cookie:cookie}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{method,body:JSON.stringify(body)}:{})});let data;try{data=await r.clone().json();}catch{}return {r,data};};
 try{
+ const health=(await call('/api/health')).data;assert.equal(health.ok,true);const serverHash=createHash('sha256');for(const name of ['nasServer.mjs','nasDatabase.mjs','workspace-validation.mjs'])serverHash.update(name).update(fs.readFileSync('server/'+name));assert.equal(health.serverDigest,serverHash.digest('hex'),'Health must identify the running server build');
  assert.equal((await call('/api/shared/workspace')).r.status,401);assert.equal((await call('/csq-workspace-references.json')).r.status,401);assert.equal((await call('/erp-products.json')).r.status,401);
  assert.equal((await call('/api/shared/login','',{username:'testadmin',password:'wrong'})).r.status,401);
  const login=await call('/api/shared/login','',{username:'testadmin',password:'Test-only-password-2026'}),admin=login.r.headers.get('set-cookie').split(';')[0];assert.ok(login.r.headers.get('set-cookie').includes('HttpOnly'));assert.ok(login.r.headers.get('set-cookie').includes('SameSite=Strict'));
@@ -41,7 +43,7 @@ try{
  const conflict=structuredClone(next);conflict.tracking['test-record'].bulk.ppsStatus='NOT REQUIRED';assert.equal((await call('/api/shared/workspace',member,{changes:diffWorkspaces(next,conflict)},'PATCH')).r.status,409);
  const revision=db.revision(),bad=[{kind:'tracking',id:'valid',before:null,after:{tp:'2026-10-12'}},{kind:'shipments',id:'bad',before:null,after:{id:'bad'}}];assert.equal((await call('/api/shared/workspace',admin,{changes:bad},'PATCH')).r.status,400);assert.equal(db.revision(),revision);assert.ok(!db.workspace().tracking.valid,'Failed transactions must roll back every record');
  const pollution=[{kind:'tracking',id:'__proto__',before:null,after:{tp:'test'}}];assert.equal((await call('/api/shared/workspace',admin,{changes:pollution},'PATCH')).r.status,400);
- const refs=(await call('/csq-workspace-references.json',member)).data,ss=refs.tracking.filter(r=>r.season==='SS27');assert.equal(new Set(ss.map(r=>r.poNumber)).size,93);assert.equal(ss.reduce((n,r)=>n+r.quantity,0),644397);
+ const refs=(await call('/csq-workspace-references.json',member)).data,ss=refs.tracking.filter(r=>r.season==='SS27');assert.equal(new Set(ss.map(r=>r.poNumber)).size,93);assert.equal(ss.reduce((n,r)=>n+r.quantity,0),644417);
  const optionsChange=[{kind:'classificationOptions',id:'series:ADMIRAL BEACHWEAR',before:null,after:{kind:'series',value:'ADMIRAL BEACHWEAR WOMAN'}}];assert.equal((await call('/api/shared/workspace',admin,{changes:optionsChange},'PATCH')).r.status,200);assert.equal(db.workspace().classificationOptions['series:ADMIRAL BEACHWEAR'].value,'ADMIRAL BEACHWEAR');
  const removedOrder=refs.orders[0];assert.equal((await call('/api/shared/workspace',admin,{changes:[{kind:'removedOrders',id:removedOrder.poNumber,before:null,after:removedOrder}]},'PATCH')).r.status,200);assert.equal(db.workspace().removedOrders[removedOrder.poNumber].poNumber,removedOrder.poNumber);
  const backup=await call('/api/shared/backup',admin,{});assert.equal(backup.r.status,200);assert.equal(Buffer.from(await backup.r.arrayBuffer()).subarray(0,15).toString(),'SQLite format 3');assert.ok(db.db.prepare('SELECT count(*) n FROM audit').get().n>=3);

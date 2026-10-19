@@ -1,16 +1,18 @@
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
+import {createHash} from 'node:crypto';
 import {NasDatabase} from './nasDatabase.mjs';
 import {loadWorkspace} from './workspace-validation.mjs';
 export function createNasServer({dataDir=process.env.DATA_DIR||'data',webRoot=process.env.WEB_ROOT||'dist',adminUsername=process.env.NAS_ADMIN_USER,adminPassword=process.env.NAS_ADMIN_PASSWORD,secureCookies=process.env.COOKIE_SECURE==='true',preview=false,cookieName='csq_session',cookiePath='/'}={}){
+ const serverBuild=createHash('sha256');for(const name of ['nasServer.mjs','nasDatabase.mjs','workspace-validation.mjs'])serverBuild.update(name).update(fs.readFileSync(new URL(name,import.meta.url)));const serverDigest=serverBuild.digest('hex');
  const db=new NasDatabase(dataDir,w=>loadWorkspace(JSON.stringify(w),null));
  if(!db.users().length){if(!adminUsername||!adminPassword)throw new Error('首次啟動須設定 NAS_ADMIN_USER 與至少 12 字元的 NAS_ADMIN_PASSWORD');db.addUser({username:adminUsername,password:adminPassword,name:'系統管理員',role:'admin'});}
  for(const name of ['csq-workspace-references.json','erp-products.json']){const file=path.join(webRoot,name);if(fs.existsSync(file))db.seed(name,JSON.parse(fs.readFileSync(file,'utf8')));}
  const app=express(),attempts=new Map();app.disable('x-powered-by');app.use(express.json({limit:'30mb'}));app.use((req,res,next)=>{res.set('Cache-Control','no-store');res.set('X-Content-Type-Options','nosniff');res.set('Content-Security-Policy',"default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; connect-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; frame-ancestors 'none'");if(!['GET','HEAD'].includes(req.method)&&req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)return res.status(403).json({error:'請從工作站網址操作'});next();});
  const cookie=req=>req.headers.cookie?.split(';').map(x=>x.trim()).find(x=>x.startsWith(cookieName+'='))?.slice(cookieName.length+1)||'';
  const auth=(req,res,next)=>{req.user=db.session(cookie(req));if(!req.user)return res.status(401).json({error:'請先登入'});next();},admin=(req,res,next)=>req.user.role==='admin'?next():res.status(403).json({error:'僅管理員可操作'});
- app.get('/api/shared/status',(_req,res)=>res.json({mode:'nas',environment:preview?'preview':'production',roles:['admin','member','viewer']}));app.get('/api/health',(_req,res)=>res.json({ok:true}));
+ app.get('/api/shared/status',(_req,res)=>res.json({mode:'nas',environment:preview?'preview':'production',roles:['admin','member','viewer']}));app.get('/api/health',(_req,res)=>res.json({ok:true,serverDigest}));
  app.post('/api/shared/login',(req,res)=>{const key=req.socket.remoteAddress,n=attempts.get(key)||{count:0,until:Date.now()+600000};if(n.until<Date.now()){n.count=0;n.until=Date.now()+600000;}if(n.count>=10)return res.status(429).json({error:'登入嘗試過多，請 10 分鐘後重試'});const result=db.login(req.body.username,req.body.password);if(!result){n.count++;attempts.set(key,n);return res.status(401).json({error:'帳號或密碼不正確'});}attempts.delete(key);res.cookie(cookieName,result.token,{httpOnly:true,sameSite:'strict',secure:secureCookies,maxAge:12*3600000,path:cookiePath});res.json({user:result.user});});
  app.post('/api/shared/logout',auth,(req,res)=>{db.logout(cookie(req));res.clearCookie(cookieName,{path:cookiePath});res.json({ok:true});});app.get('/api/shared/me',auth,(req,res)=>res.json({user:req.user}));
  app.post('/api/shared/password',auth,(req,res)=>{try{if(!db.verifyPassword(req.user.id,req.body.currentPassword))return res.status(400).json({error:'目前密碼不正確'});db.updateUser(req.user.id,{password:req.body.newPassword});res.clearCookie(cookieName,{path:cookiePath});res.json({ok:true});}catch(e){res.status(400).json({error:e.message});}});

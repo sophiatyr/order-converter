@@ -1,6 +1,6 @@
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import { createWorker, PSM } from 'tesseract.js';
-import { layoutToRows, type PositionedText } from './documentLayout';
+import { layoutToRows, type PositionedText, type LayoutContext } from './documentLayout';
 
 const assetUrl = (file: string) => new URL(`vendor/${file}`, new URL(import.meta.env.BASE_URL, window.location.href)).href;
 GlobalWorkerOptions.workerSrc = assetUrl('pdf.worker.min.mjs');
@@ -60,6 +60,7 @@ export async function readLocalDocument(file: File, progress: Progress, forceOcr
         isEvalSupported: false,
       }).promise;
       if (pdf.numPages > 50) throw new Error('PDF 超過 50 頁，請分批辨識。');
+      const layoutContext:LayoutContext={};
       for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
         // A page header must never be appended to the preceding colour name.
         if (pageNumber > 1) rows.push([]);
@@ -72,7 +73,7 @@ export async function readLocalDocument(file: File, progress: Progress, forceOcr
         });
         if (!forceOcr && words.reduce((length, word) => length + word.text.trim().length, 0) >= 30) {
           pages.push(words);
-          rows.push(...layoutToRows(words));
+          rows.push(...layoutToRows(words,layoutContext));
         } else {
           usedOcr = true;
           progress(`PDF 第 ${pageNumber} 頁為掃描頁，啟動本機 OCR...`);

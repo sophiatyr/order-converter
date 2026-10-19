@@ -7,7 +7,8 @@ export interface PositionedText {
 }
 
 /** Recover table cells from PDF/OCR coordinates, preserving blank columns. */
-export function layoutToRows(words: PositionedText[]): string[][] {
+export interface LayoutContext {sizeColumns?:PositionedText[]}
+export function layoutToRows(words: PositionedText[], context?:LayoutContext): string[][] {
   const lines: { y: number; height: number; words: PositionedText[] }[] = [];
   for (const word of [...words].filter(w => w.text.trim()).sort((a, b) => a.y - b.y || a.x - b.x)) {
     const line = lines.find(l => Math.abs(l.y - word.y) <= Math.max(3, Math.min(l.height, word.height) * 0.5));
@@ -26,12 +27,13 @@ export function layoutToRows(words: PositionedText[]): string[][] {
     return result;
   };
   let columns: PositionedText[] | undefined;
-  let sizeColumns: PositionedText[] | undefined;
+  let sizeColumns: PositionedText[] | undefined = context?.sizeColumns;
   return lines.map(source => {
     const line = merge(source.words, source.height);
     const sizes = line.filter(c => /^(UNI|XXS|XS|S|M|L|XL|XXL|XXXL|[2-6]XL|\d{1,3}A)$/i.test(c.text));
     if (sizes.length >= 2 && sizes.length === line.length) {
       sizeColumns = sizes;
+      if(context)context.sizeColumns=sizes;
       return line.map(c => c.text);
     }
     if (sizeColumns && (line.some(c => /^(MULTIPLO|MULTIPLE|RATIO)/i.test(c.text)) || (line.some(c => /^(?:\d+(?:\/\d+)*|AOP\d*)$/.test(c.text)) && line.some(c => /\b(PZ|PCS|PC|EA)\b/i.test(c.text))))) {

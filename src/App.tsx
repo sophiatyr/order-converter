@@ -191,7 +191,7 @@ function App({shared,localSystem,localRole}:{shared?:SharedSession;localSystem?:
       <div className="csq-sidebar-foot"><span><i />{shared?(shared.preview?'本機共用版測試':'NAS 共用工作站'):'本機工作站'}</span><p>{shared?(shared.preview?'測試資料獨立保存':'資料保存在 NAS 共用資料庫'):'文件在本機處理'}<br />{shared?(shared.preview?'不影響 NAS 正式資料':'同事共用最新作業資料'):'不使用外部 API'}</p><button onClick={() => setHelpOpen(true)}><HelpCircle size={16} />使用說明</button></div>
     </aside>
     <div className="csq-main">
-      <header className="csq-topbar"><div>CSQ 客戶作業 <ChevronRight size={14} /><strong>{navigation.find(m=>m[0]===module)?.[1]}</strong></div><span><ShieldCheck size={15} />{shared?(shared.preview?'本機測試':'NAS 共用'):'本機處理'}</span></header>
+      <header className="csq-topbar"><div>CSQ 客戶作業 <ChevronRight size={14} /><strong>{navigation.find(m=>m[0]===module)?.[1]}</strong></div><span><b className="csq-version" title="目前網頁程式版號">版本 {__CSQ_RELEASE__.version}</b><ShieldCheck size={15} />{shared?(shared.preview?'本機測試':'NAS 共用'):'本機處理'}</span></header>
       <main className="csq-content">
         {notice && <p className="csq-alert" role="alert"><AlertCircle size={16} />{notice}</p>}
         {downloadLink && <div className="csq-download-ready" role="status"><Check size={16} /><span>文件已產生：{downloadLink.filename}</span><a href={downloadLink.url} download={downloadLink.filename}>下載檔案</a></div>}
@@ -224,7 +224,7 @@ function App({shared,localSystem,localRole}:{shared?:SharedSession;localSystem?:
         </>}
         </>:<WorkspaceModules onRefreshErp={()=>void refreshMaterials()} erpBusy={materialBusy} erpStatus={materialStatus} sharedMode={!!shared} key={module} module={module} workspace={workspace} references={workspaceRefs} erp={erpSnapshot} onChange={saveWorkspace} onRestore={restoreWorkspace} onOpenOrder={value=>{updateOrder(value);setModule('orders');}} onDatabase={()=>setDatabaseOpen(true)} onDownload={showDownload} onRefresh={()=>void refreshWorkspaceRefs()} referenceError={workspaceRefError}/>}
         </fieldset></ReadOnlyView>
-        <footer className="csq-footer"><span>CSQ 工作站 · {shared?(shared.preview?'本機共用版測試':'NAS 共用版'):'單機版'}</span><span>Account CSQ / Sports Kite</span></footer>
+        <footer className="csq-footer"><span>CSQ 工作站 · {shared?(shared.preview?'本機共用版測試':'NAS 共用版'):'單機版'} · 版本 {__CSQ_RELEASE__.version}</span><span>Account CSQ / Sports Kite</span></footer>
       </main>
     </div>
     <PdfUploadModal isOpen={uploadOpen&&!shared?.blocked&&!readOnly} onClose={() => setUploadOpen(false)} onOrderLoaded={value => { updateOrder(value); setModule('orders'); setPage('review'); }} />

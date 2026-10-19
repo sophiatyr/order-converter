@@ -64,8 +64,8 @@ const FILL_PACK_BOX: ExcelJS.Fill = {
 };
 
 export interface GeneratedDownload { url: string; filename: string }
-export async function saveWorkbookToFile(wb: ExcelJS.Workbook, filename: string): Promise<GeneratedDownload> {
-  const buffer = await presentWorkbook(wb).xlsx.writeBuffer();
+export async function saveWorkbookToFile(wb: ExcelJS.Workbook, filename: string, options?: {preserveFormatting?: boolean}): Promise<GeneratedDownload> {
+  const buffer = await (options?.preserveFormatting ? wb : presentWorkbook(wb)).xlsx.writeBuffer();
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });

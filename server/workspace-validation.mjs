@@ -333,7 +333,7 @@ function readMultipleKits(rows) {
   if (headers.length !== 1 || !headers[0].some((c) => /^Total Pieces$/i.test(c))) throw new Error("Kit composition \u6B04\u4F4D\u4E0D\u5B8C\u6574");
   const starts = main.flatMap((row, i) => /^[A-Z][A-Z0-9-]*\/\d+/.test(row[0] || "") ? [i] : []), sales = /* @__PURE__ */ new Map();
   for (const [n, start] of starts.entries()) {
-    const body = main.slice(start, starts[n + 1] ?? main.length), first = body[0][0].match(/^([A-Z][A-Z0-9-]*\/\d+)/);
+    const body = main.slice(start, starts[n + 1] ?? main.length), first = body[0][0].match(/^([A-Z][A-Z0-9-]*\/\d+(?:[-/]\d+)*[-/]?)/);
     let vendor = first[1];
     if (/^\d+$/.test(body[1]?.[0] || "") && !/\bPZ\b/.test(body[1].join(" "))) vendor += body[1][0];
     const codes = [...new Set(body.filter((row) => row.length >= 2 && code.test(row.at(-1))).map((row) => row.at(-1)))];
@@ -350,22 +350,32 @@ function readMultipleKits(rows) {
   const segments = composition.flatMap((row, i) => code.test(row[0] || "") ? [i] : []), kits = [];
   let current;
   for (const [n, start] of segments.entries()) {
-    const body = composition.slice(start, segments[n + 1] ?? composition.length), row = body[0];
+    const body = composition.slice(start, segments[n + 1] ?? composition.length), row = [...body[0]];
     let vendor = row[2] || "";
-    if (/^\d+$/.test(body[1]?.[0] || "")) vendor += body[1][0];
     const kitSale = sales.get(row[0]);
     if (kitSale) {
+      if (/^\d+$/.test(body[1]?.[0] || "")) vendor += body[1][0];
       if (kits.some((k) => k.code === row[0])) throw new Error("Kit code \u91CD\u8907");
       if (vendor !== kitSale.vendor) throw new Error(`${row[0]} \u4E3B\u8868\u8207\u7D44\u6210\u8868\u54C1\u865F\u4E0D\u7B26`);
       const packs = integer(row.at(-3), "Kit \u5305\u6578"), perPack = integer(row.at(-2), "\u6BCF\u5305\u4EF6\u6578"), total = integer(row.at(-1), "\u5C55\u958B\u4EF6\u6578");
       if (packs !== kitSale.packs || packs * perPack !== total) throw new Error(`${vendor} \u5305\u6578\uFF0F\u6BCF\u5305\u4EF6\u6578\uFF0F\u7E3D\u4EF6\u6578\u4E0D\u7B26`);
-      const match = vendor.match(/^(.+)\/(\d+)$/);
-      current = { ...kitSale, style: match[1], color: match[2], colorName: "", description: "", code: row[0], component: "", perPack, sizes: {}, ratios: {} };
+      const match = vendor.match(/^([A-Z][A-Z0-9-]*)\/(\d+(?:[-/]\d+)*)$/);
+      if (!match) throw new Error(`${row[0]} Kit \u54C1\u865F\u683C\u5F0F\u4E0D\u5B8C\u6574`);
+      current = { ...kitSale, style: match[1], color: match[2].replace(/-/g, "/"), colorName: "", description: "", code: row[0], component: "", perPack, sizes: {}, ratios: {} };
       kits.push(current);
     } else {
+      if (current) {
+        const expected = `${current.style}-${current.color}`, next = body[1]?.[0] || "";
+        if (vendor + next === expected) vendor += next;
+        if (vendor !== expected && row[1]?.endsWith(" " + expected)) {
+          row[1] = row[1].slice(0, -expected.length).trim();
+          row.splice(2, 0, expected);
+          vendor = expected;
+        }
+      }
       if (!current || !vendor.includes("-")) throw new Error(`${row[0]} \u7D44\u6210\u660E\u7D30\u7F3A\u5C11 Kit \u62AC\u982D`);
       const size = row.at(-3).toUpperCase(), ratio = integer(row.at(-2), "\u5C3A\u78BC\u914D\u6BD4"), qty = integer(row.at(-1), "\u5C3A\u78BC\u4EF6\u6578");
-      const colorText = row.slice(3, -3).join(" "), match = colorText.match(/^(\d+)\s+(.+)$/);
+      const colorText = row.slice(3, -3).join(" "), match = colorText.match(/^(\d+(?:\/\d+)*)\s+(.+)$/);
       if (!match || vendor !== `${current.style}-${current.color}` || match[1] !== current.color) throw new Error(`${current.code} \u7D44\u6210\u6B3E\u865F\u6216\u984F\u8272\u4E0D\u7B26`);
       if (!/^(?:\d{1,3}A|XXS|XS|S|M|L|XL|XXL|XXXL|[3-6]XL|UNI)$/.test(size) || size in current.sizes) throw new Error(`${current.code} \u5C3A\u78BC\u7121\u6548\u6216\u91CD\u8907`);
       if (ratio * current.packs !== qty) throw new Error(`${current.code} \u5C3A\u78BC\u914D\u6BD4\u4E58\u5305\u6578\u8207\u4EF6\u6578\u4E0D\u7B26`);

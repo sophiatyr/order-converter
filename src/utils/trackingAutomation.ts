@@ -1,4 +1,5 @@
 import type {TrackingRecord,Workspace} from './workspace';
+import {poStyleItems,shipmentStyleQuantity} from './trackingPoSource';
 
 export function localToday(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
 export function activeTrackingRows(rows:TrackingRecord[]){
@@ -19,8 +20,8 @@ export function syncTracking(r:TrackingRecord,w:Workspace):TrackingRecord{
  }
  if(order){Object.assign(fields,{A:order.piNumber,B:order.poNumber,O:r.itemNo,P:String(r.quantity),T:order.shipmentDate,U:order.factoryShipDate,R:order.poDate,S:order.piDate,I:order.packingType||'NORMAL PACK',H:String(order.totalAmountUSD),_scopeH:`order:${order.poNumber}`});
   if(order.season)fields.C=order.season;
-  const item=order.items.find(i=>i.itemNo===r.itemNo);if(item?.factoryProduct){fields.J=item.factoryProduct.supplierCode;fields.K=item.factoryProduct.supplier;}
-  const current=order.items.filter(i=>i.itemNo===r.itemNo),quote=item?.factoryProduct;
+  const current=poStyleItems(order,r.itemNo),item=current[0];if(item?.factoryProduct){fields.J=item.factoryProduct.supplierCode;fields.K=item.factoryProduct.supplier;}
+  const quote=item?.factoryProduct;
   if(quote&&current.every(i=>i.factoryProduct?.supplier===quote.supplier&&i.factoryProduct?.currency===quote.currency)){
    const group=order.items.filter(i=>i.factoryProduct?.supplier===quote.supplier&&i.factoryProduct.currency===quote.currency);
    const cost=group.reduce((n,i)=>n+i.totalQuantity*i.factoryProduct!.price,0),sale=group.reduce((n,i)=>n+i.totalQuantity*i.unitPriceUSD,0),scope=`erp:${order.poNumber}:${quote.supplier}:${quote.currency}`;
@@ -30,8 +31,8 @@ export function syncTracking(r:TrackingRecord,w:Workspace):TrackingRecord{
  }
  const days=daysToFactory(r.factoryDate||fields.U||'');fields.V=days===null?'':String(days);
  if(!Object.hasOwn(bulk,'ppsStatus')&&fields.AD&&daysToFactory(fields.AD)!==null){bulk.ppsStatus='APPROVED';bulk.ppsApprovalDate=fields.AD;bulk.ppsDate=bulk.ppsDate||fields.AC||'';}
- const shipments=w.shipments.filter(s=>s.confirmed&&s.poNumber===r.poNumber&&s.scNumber===r.scNumber&&s.lines.some(l=>l.itemNo===r.itemNo&&Object.values(l.sizes).some(q=>q>0))).sort((a,b)=>a.date.localeCompare(b.date));
- const lines=shipments.flatMap(s=>s.lines.filter(l=>l.itemNo===r.itemNo));const qty=lines.reduce((n,l)=>n+Object.values(l.sizes).reduce((a,b)=>a+b,0),0);
+ const shipments=w.shipments.filter(s=>s.confirmed&&s.poNumber===r.poNumber&&s.scNumber===r.scNumber&&s.lines.some(l=>shipmentStyleQuantity(l,r.itemNo,order)>0)).sort((a,b)=>a.date.localeCompare(b.date));
+ const lines=shipments.flatMap(s=>s.lines.filter(l=>shipmentStyleQuantity(l,r.itemNo,order)>0));const qty=lines.reduce((n,l)=>n+shipmentStyleQuantity(l,r.itemNo,order),0);
  if(qty>0){const s=shipments.at(-1)!;bulk.shipmentStatus=qty>=r.quantity?'SHIPPED':'PLANNED';bulk.shipmentDate=qty>=r.quantity?s.date:bulk.shipmentPlannedDate||'';fields.AK=s.date;fields.AO=[...new Set(shipments.map(s=>s.vessel).filter(Boolean))].join(' / ');fields.AP=String(lines.reduce((n,l)=>n+l.cbm,0));fields.AQ=shipments.map(s=>s.invoiceNo).join(' / ');}
  else if(r.season==='SS27'||order){bulk.shipmentStatus='PLANNED';bulk.shipmentDate=bulk.shipmentPlannedDate||'';}
  if(fields._shipmentClosed==='Y')bulk.shipmentStatus='SHIPPED';
