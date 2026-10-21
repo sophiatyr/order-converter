@@ -32,7 +32,21 @@ export class NasDatabase{
   for(const c of updated){const next=normalizedRecords.get(c.kind+'|'+c.id);if(next===undefined)this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(c.kind,c.id);else this.db.prepare('INSERT INTO records VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET payload=excluded.payload').run(c.kind,c.id,JSON.stringify(next));this.db.prepare('INSERT INTO audit(at,user_id,kind,record_id,before_payload,after_payload) VALUES(?,?,?,?,?,?)').run(new Date().toISOString(),user.id,c.kind,c.id,c.prior==null?null:JSON.stringify(c.prior),next===undefined?null:JSON.stringify(next));}
   if(updated.length)this.db.prepare("UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='revision'").run();this.db.exec('COMMIT');return {workspace:this.workspace(),revision:this.revision()};
  }catch(e){this.db.exec('ROLLBACK');throw e;}}
- seed(name,value){this.db.prepare('INSERT OR IGNORE INTO metadata VALUES(?,?)').run(name,JSON.stringify(value));}
+ seed(name,value,{refreshNewer=false}={}){
+  const prior=this.reference(name);
+  if(!prior){this.db.prepare('INSERT OR IGNORE INTO metadata VALUES(?,?)').run(name,JSON.stringify(value));return {inserted:true};}
+  // Only ERP reference data is refreshed here. Orders, maintained product fields and
+  // selected purchase prices are separate records and must never be replaced.
+  if(!refreshNewer||name!=='erp-products.json'||!(Date.parse(value?.updatedAt)>Date.parse(prior.updatedAt)))return {updated:false};
+  if(value?.account!=='CSQ'||!Array.isArray(value.products)||!value.products.length||value.products.some(p=>typeof p.itemNo!=='string'||!p.itemNo.trim()||typeof p.chineseSpec!=='string'))throw Error('新版 ERP 參考資料格式不符，尚未套用');
+  const backup=this.backup();
+  this.db.exec('BEGIN IMMEDIATE');
+  try{
+   this.db.prepare('UPDATE metadata SET value=? WHERE key=?').run(JSON.stringify(value),name);
+   this.db.prepare('INSERT INTO audit(at,user_id,kind,record_id,before_payload,after_payload) VALUES(?,NULL,?,?,?,?)').run(new Date().toISOString(),'references',name,JSON.stringify(prior),JSON.stringify(value));
+   this.db.exec('COMMIT');return {updated:true,backup};
+  }catch(error){this.db.exec('ROLLBACK');throw error;}
+ }
  reference(name){const r=this.db.prepare('SELECT value FROM metadata WHERE key=?').get(name);return r?JSON.parse(r.value):null;}
  addUser({username,name,role,password}){if(!/^[A-Za-z0-9._-]{3,64}$/.test(username)||!['admin','member','viewer'].includes(role)||typeof password!=='string'||password.length<12||password.length>256||typeof name!=='string'||!name.trim()||name.length>100)throw new Error('帳號須為 3–64 個英數字，密碼至少 12 字元，姓名與角色必填');const salt=randomBytes(16).toString('hex'),hash=scryptSync(password,salt,64).toString('hex');this.db.prepare('INSERT INTO users(username,name,role,hash,salt) VALUES(?,?,?,?,?)').run(username,name.trim(),role,hash,salt);}
  users(){return this.db.prepare('SELECT id,username,name,role,active FROM users ORDER BY id').all();}

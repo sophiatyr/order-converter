@@ -1,3 +1,66 @@
+// src/utils/shipmentLc.ts
+function shipmentLcs(s) {
+  if (s.factoryNotice?.lcEntries) {
+    const entries = JSON.parse(s.factoryNotice.lcEntries);
+    if (!Array.isArray(entries) || entries.some((e) => typeof e.number !== "string" || typeof e.date !== "string" || typeof e.bank !== "string" || !Array.isArray(e.lineIds) || e.lineIds.some((id) => typeof id !== "string"))) throw Error("L/C \u5C0D\u61C9\u8CC7\u6599\u683C\u5F0F\u4E0D\u7B26");
+    return entries;
+  }
+  return s.factoryNotice?.lcNumber ? [{ number: s.factoryNotice.lcNumber, date: s.factoryNotice.lcIssueDate || "", bank: s.factoryNotice.lcIssueBank || "", lineIds: s.lines.map((l) => l.id) }] : [];
+}
+function lcForLine(s, lineId) {
+  const entries = shipmentLcs(s).filter((e) => e.number.trim()), matches = entries.filter((e) => e.lineIds.includes(lineId));
+  if (matches.length > 1 || entries.length > 0 && matches.length !== 1) throw Error("\u8ACB\u9010\u6B3E\u8272\u78BA\u8A8D L/C \u5C0D\u61C9\uFF0C\u6BCF\u6B3E\u8272\u61C9\u5C0D\u61C9\u4E00\u5F35 L/C\u3002");
+  return matches[0]?.number || "";
+}
+
+// src/utils/trackingUnits.ts
+function trackingQuantityUnit(value) {
+  const unit = (value || "").trim();
+  return ["", "PO\u55AE\u4F4D", "\u4EF6", "PC", "PCE", "PCS"].includes(unit.replace(/\s/g, "").toUpperCase()) ? "PCS" : unit;
+}
+
+// src/utils/shipmentSelection.ts
+function shipmentSelectionIssues(s) {
+  if (!s.factoryNotice?.plannedSelection) return [];
+  try {
+    const selected = JSON.parse(s.factoryNotice.plannedSelection), issues = [];
+    if (!selected || typeof selected !== "object" || Array.isArray(selected)) throw Error();
+    for (const l of s.lines) {
+      const sizes = selected[l.id];
+      if (!sizes || typeof sizes !== "object" || Array.isArray(sizes) || Object.values(sizes).some((q) => typeof q !== "number" || !Number.isInteger(q) || q < 0)) {
+        issues.push(`${l.itemNo}\uFF1A\u672C\u6B21\u9078\u53D6\u6578\u91CF\u7121\u6548`);
+        continue;
+      }
+      for (const [size, q] of Object.entries(l.sizes)) if (q > (sizes[size] || 0)) issues.push(`${l.itemNo} / ${l.color} / ${size}\uFF1A\u5BE6\u969B\u88DD\u7BB1\u8D85\u904E\u672C\u6B21\u9078\u53D6\u91CF`);
+    }
+    return issues;
+  } catch {
+    return ["\u672C\u6B21\u51FA\u8CA8\u6B3E\u8272\u9078\u53D6\u8CC7\u6599\u683C\u5F0F\u4E0D\u7B26"];
+  }
+}
+
+// src/utils/sizeVariants.ts
+var pricingCode = (item) => item.erpItemNo || item.itemNo;
+function sizeVariantOrder(order) {
+  return { ...order, items: order.items.map((item) => {
+    if (item.itemNo.trim().toUpperCase() !== "RCL006") return item;
+    const active = item.sizes.filter((size) => item.colors.some((c) => (c.quantitiesBySize[size] || 0) > 0));
+    if (active.length !== 1 || !["S", "M", "L", "XL"].includes(active[0])) return item.erpItemNo ? { ...item, erpItemNo: void 0, factoryProduct: void 0, erpQuoteKey: void 0, factoryPriceRecord: void 0, factoryUnitPriceUSD: void 0, unitPriceRMB: 0, totalAmountRMB: 0 } : item;
+    const erpItemNo = `RCL006-${active[0]}`;
+    if (item.erpItemNo === erpItemNo) return item;
+    return { ...item, erpItemNo, factoryProduct: void 0, erpQuoteKey: void 0, factoryPriceRecord: void 0, factoryUnitPriceUSD: void 0, unitPriceRMB: 0, totalAmountRMB: 0 };
+  }) };
+}
+
+// src/utils/verifiedTrackingStyles.ts
+var corrections = {
+  "26OF028473": { ABCTW070S27: "ABCTW070CO" },
+  "26OF029925": { ABCRM1039S27: "ABCRB1039S27", ABCRW1036S27: "ABCRG1036S27" }
+};
+function verifiedTrackingStyle(po, style) {
+  return corrections[po]?.[style] || style;
+}
+
 // src/data/defaultProducts.ts
 var defaultProductDatabase = [
   {
@@ -168,18 +231,6 @@ function matchProductInDatabase(itemNo) {
   return void 0;
 }
 
-// src/utils/sizeVariants.ts
-function sizeVariantOrder(order) {
-  return { ...order, items: order.items.map((item) => {
-    if (item.itemNo.trim().toUpperCase() !== "RCL006") return item;
-    const active = item.sizes.filter((size) => item.colors.some((c) => (c.quantitiesBySize[size] || 0) > 0));
-    if (active.length !== 1 || !["S", "M", "L", "XL"].includes(active[0])) return item.erpItemNo ? { ...item, erpItemNo: void 0, factoryProduct: void 0, erpQuoteKey: void 0, factoryPriceRecord: void 0, factoryUnitPriceUSD: void 0, unitPriceRMB: 0, totalAmountRMB: 0 } : item;
-    const erpItemNo = `RCL006-${active[0]}`;
-    if (item.erpItemNo === erpItemNo) return item;
-    return { ...item, erpItemNo, factoryProduct: void 0, erpQuoteKey: void 0, factoryPriceRecord: void 0, factoryUnitPriceUSD: void 0, unitPriceRMB: 0, totalAmountRMB: 0 };
-  }) };
-}
-
 // src/utils/classification.ts
 function cleanSeries(value) {
   const suffix = /(?:\s*[-–—·/()]?\s*\b(?:SS|FW|AW)\s*['’]?\d{2}\s*\)?)+$/i;
@@ -211,7 +262,7 @@ function normalizeClassification(value) {
 // src/utils/orderCorrections.ts
 function correctOrderItems(order, itemIds, values, reason, date) {
   if (!reason.trim()) throw new Error("\u8ACB\u586B\u5BEB\u66F4\u6B63\u539F\u56E0");
-  const corrections = [...order.corrections || []];
+  const corrections2 = [...order.corrections || []];
   const items = order.items.map((item) => {
     if (!itemIds.includes(item.id)) return item;
     let next = { ...item };
@@ -222,7 +273,7 @@ function correctOrderItems(order, itemIds, values, reason, date) {
       if (field === "unitPriceUSD" && (!Number.isFinite(Number(value)) || Number(value) <= 0)) throw new Error("\u5BA2\u6236\u55AE\u50F9\u9808\u5927\u65BC 0");
       const original = String(item[field]);
       if (original === value || field === "unitPriceUSD" && Number(original) === Number(value)) continue;
-      corrections.push({ id: `correction:${date}:${item.id}:${field}:${corrections.length}`, date, itemId: item.id, field, originalValue: original, correctedValue: value, reason: reason.trim() });
+      corrections2.push({ id: `correction:${date}:${item.id}:${field}:${corrections2.length}`, date, itemId: item.id, field, originalValue: original, correctedValue: value, reason: reason.trim() });
       if (field === "itemNo") {
         next = { ...next, itemNo: value, erpItemNo: void 0, factoryProduct: void 0, erpQuoteKey: void 0, factoryPriceRecord: void 0, customerPriceRecord: void 0, chineseName: "", chineseSpec: "", factoryUnitPriceUSD: 0, unitPriceRMB: 0, totalAmountRMB: 0 };
       }
@@ -240,7 +291,7 @@ function correctOrderItems(order, itemIds, values, reason, date) {
     }
     return next;
   });
-  return { ...order, items, corrections, totalAmountUSD: items.reduce((n, i) => n + i.totalQuantity * i.unitPriceUSD, 0) };
+  return { ...order, items, corrections: corrections2, totalAmountUSD: items.reduce((n, i) => n + i.totalQuantity * i.unitPriceUSD, 0) };
 }
 function applyConfirmedPoCorrections(order) {
   if (order.poNumber === "26OF048119") {
@@ -923,6 +974,7 @@ function readCsqBackup(text) {
   const saved = JSON.parse(text);
   const source = saved?.order;
   if (saved?.account === "CSQ" && saved?.version === 1 && source?.poNumber && Array.isArray(source.items) && source.items.length) {
+    if (source.importedAt !== void 0 && (typeof source.importedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(source.importedAt) || !Number.isFinite(Date.parse(source.importedAt)))) throw new Error("\u8A02\u55AE\u532F\u5165\u65E5\u671F\u683C\u5F0F\u4E0D\u7B26\u3002");
     if (source.requiresAntiCounterfeitLabel !== void 0 && typeof source.requiresAntiCounterfeitLabel !== "boolean") throw new Error("\u9632\u507D\u6A19\u8A2D\u5B9A\u683C\u5F0F\u4E0D\u7B26\u3002");
     if (source.normalCartonQuantity !== void 0 && (!Number.isInteger(source.normalCartonQuantity) || source.normalCartonQuantity < 1)) throw new Error("\u55AE\u8272\u55AE\u78BC\u6BCF\u7BB1\u4EF6\u6578\u9808\u70BA\u5927\u65BC 0 \u7684\u6574\u6578\u3002");
     if (source.corrections !== void 0 && (!Array.isArray(source.corrections) || source.corrections.some((c) => !c || !["itemNo", "unitPriceUSD", "description"].includes(c.field) || ["id", "date", "itemId", "originalValue", "correctedValue", "reason"].some((k) => typeof c[k] !== "string")))) throw new Error("\u8A02\u55AE\u66F4\u6B63\u7D00\u9304\u683C\u5F0F\u4E0D\u7B26\u3002");
@@ -990,6 +1042,34 @@ function readCsqBackup(text) {
   return normalizeCsqOrder(order);
 }
 
+// src/utils/trackingPoSource.ts
+function poStyleItems(order, sku) {
+  const exact = order?.items.filter((i) => i.itemNo === sku) || [];
+  if (exact.length) return exact;
+  const variant = sku.match(/^(.+)-(XS|S|M|L|XL|XXL|XXXL)$/);
+  if (!variant) return [];
+  return (order?.items || []).filter((i) => i.itemNo === variant[1] && i.sizes.includes(variant[2])).map((i) => {
+    const size = variant[2], colors = i.colors.map((c) => ({ ...c, totalQuantity: c.quantitiesBySize[size] || 0, quantitiesBySize: { [size]: c.quantitiesBySize[size] || 0 } })).filter((c) => c.totalQuantity > 0), totalQuantity = colors.reduce((n, c) => n + c.totalQuantity, 0);
+    return { ...i, itemNo: sku, sizes: [size], colors, totalQuantity, totalAmountUSD: totalQuantity * i.unitPriceUSD };
+  }).filter((i) => i.totalQuantity > 0);
+}
+function shipmentStyleQuantity(line, sku, order) {
+  if (line.itemNo === sku) return Object.values(line.sizes).reduce((n, q) => n + q, 0);
+  const variant = sku.match(/^(.+)-(XS|S|M|L|XL|XXL|XXXL)$/);
+  if (variant && line.itemNo === variant[1] && poStyleItems(order, sku).length) return line.sizes[variant[2]] || 0;
+  return 0;
+}
+
+// src/utils/trackingProgress.ts
+var progressColumns = { tp: "W", labDip: "AA", fitSample: "AB", shippingSample: "AF", inspection: "AH" };
+function sharedProgressFields(record) {
+  const fields = { ...record.internalFields }, bulk = record.bulk || {};
+  for (const [phase, col] of Object.entries(progressColumns)) if (Object.hasOwn(bulk, phase + "Date")) fields[col] = bulk[phase + "Date"];
+  if (Object.hasOwn(bulk, "ppsDate")) fields.AC = bulk.ppsDate;
+  if (Object.hasOwn(bulk, "ppsApprovalDate")) fields.AD = bulk.ppsApprovalDate;
+  return fields;
+}
+
 // src/utils/trackingAutomation.ts
 function localToday() {
   const d = /* @__PURE__ */ new Date();
@@ -1005,7 +1085,7 @@ function daysToFactory(value, today = localToday()) {
   return Number.isFinite(n) ? Math.round(n) : null;
 }
 function syncTracking(r, w) {
-  const fields = { ...r.internalFields }, bulk = { ...r.bulk };
+  const fields = sharedProgressFields(r), bulk = { ...r.bulk };
   const order = w.orders.find((o) => o.poNumber === r.poNumber && o.piNumber === r.scNumber);
   if (!order && fields._profitFormula && Number(fields.H) > 0 && fields.L !== "") {
     const cost = fields._costCurrency === "USD" ? Number(fields.L) : Number(fields._rmbPerUsd) > 0 ? Number(fields.L) / Number(fields._rmbPerUsd) : null;
@@ -1018,12 +1098,12 @@ function syncTracking(r, w) {
   if (order) {
     Object.assign(fields, { A: order.piNumber, B: order.poNumber, O: r.itemNo, P: String(r.quantity), T: order.shipmentDate, U: order.factoryShipDate, R: order.poDate, S: order.piDate, I: order.packingType || "NORMAL PACK", H: String(order.totalAmountUSD), _scopeH: `order:${order.poNumber}` });
     if (order.season) fields.C = order.season;
-    const item = order.items.find((i) => i.itemNo === r.itemNo);
+    const current = poStyleItems(order, r.itemNo), item = current[0];
     if (item?.factoryProduct) {
       fields.J = item.factoryProduct.supplierCode;
       fields.K = item.factoryProduct.supplier;
     }
-    const current = order.items.filter((i) => i.itemNo === r.itemNo), quote = item?.factoryProduct;
+    const quote = item?.factoryProduct;
     if (quote && current.every((i) => i.factoryProduct?.supplier === quote.supplier && i.factoryProduct?.currency === quote.currency)) {
       const group = order.items.filter((i) => i.factoryProduct?.supplier === quote.supplier && i.factoryProduct.currency === quote.currency);
       const cost = group.reduce((n, i) => n + i.totalQuantity * i.factoryProduct.price, 0), sale = group.reduce((n, i) => n + i.totalQuantity * i.unitPriceUSD, 0), scope = `erp:${order.poNumber}:${quote.supplier}:${quote.currency}`;
@@ -1038,9 +1118,9 @@ function syncTracking(r, w) {
     bulk.ppsApprovalDate = fields.AD;
     bulk.ppsDate = bulk.ppsDate || fields.AC || "";
   }
-  const shipments = w.shipments.filter((s) => s.confirmed && s.poNumber === r.poNumber && s.scNumber === r.scNumber && s.lines.some((l) => l.itemNo === r.itemNo && Object.values(l.sizes).some((q) => q > 0))).sort((a, b) => a.date.localeCompare(b.date));
-  const lines = shipments.flatMap((s) => s.lines.filter((l) => l.itemNo === r.itemNo));
-  const qty = lines.reduce((n, l) => n + Object.values(l.sizes).reduce((a, b) => a + b, 0), 0);
+  const shipments = w.shipments.filter((s) => s.confirmed && s.poNumber === r.poNumber && s.scNumber === r.scNumber && s.lines.some((l) => shipmentStyleQuantity(l, r.itemNo, order) > 0)).sort((a, b) => a.date.localeCompare(b.date));
+  const lines = shipments.flatMap((s) => s.lines.filter((l) => shipmentStyleQuantity(l, r.itemNo, order) > 0));
+  const qty = lines.reduce((n, l) => n + shipmentStyleQuantity(l, r.itemNo, order), 0);
   if (qty > 0) {
     const s = shipments.at(-1);
     bulk.shipmentStatus = qty >= r.quantity ? "SHIPPED" : "PLANNED";
@@ -1101,7 +1181,7 @@ function cartonCount(r) {
   return Math.max(0, r.to - r.from + 1);
 }
 function withCartons(l, rows) {
-  if (!rows.length) return { ...l, packingRows: rows };
+  if (!rows.length) return { ...l, packingRows: rows, sizes: Object.fromEntries(Object.keys(l.sizes).map((k) => [k, 0])), cartons: 0, netWeight: 0, grossWeight: 0, cbm: 0 };
   return { ...l, packingRows: rows, sizes: Object.fromEntries(Object.keys(l.sizes).map((k) => [k, rows.reduce((n, r) => n + (r.sizes[k] || 0) * cartonCount(r), 0)])), cartons: rows.reduce((n, r) => n + cartonCount(r), 0), netWeight: rows.reduce((n, r) => n + r.netWeight * cartonCount(r), 0), grossWeight: rows.reduce((n, r) => n + r.grossWeight * cartonCount(r), 0), cbm: rows.reduce((n, r) => n + r.cbm * cartonCount(r), 0) };
 }
 function packingIssues(s) {
@@ -1135,6 +1215,8 @@ function normalizeWorkspace(w) {
   return { ...w, ...w.classificationOptions ? { classificationOptions: Object.fromEntries(Object.entries(w.classificationOptions).map(([id, o]) => [id, { ...o, value: o.kind === "series" ? canonicalSeries(o.value) : o.kind === "brand" ? canonicalBrand(o.value) : o.kind === "season" ? canonicalSeason(o.value) : o.value.trim().toUpperCase() }])) } : {}, orders: w.orders.map(normalizeClassification), developments: w.developments.map(normalizeClassification), productNotes: Object.fromEntries(Object.entries(w.productNotes).map(([key2, value]) => [key2, normalizeClassification(value)])), tracking: Object.fromEntries(Object.entries(w.tracking).map(([key2, value]) => [key2, { ...normalizeClassification(value), ...value.internalFields ? { internalFields: { ...value.internalFields, ...value.internalFields.D !== void 0 ? { D: canonicalBrand(value.internalFields.D) } : {}, ...value.internalFields.E !== void 0 ? { E: cleanSeries(value.internalFields.E) } : {} } } : {} }])) };
 }
 function upsertOrder(w, order) {
+  const prior = w.orders.find((o) => o.poNumber === order.poNumber);
+  order = { ...order, importedAt: prior ? prior.importedAt || order.importedAt : order.importedAt || (/* @__PURE__ */ new Date()).toISOString() };
   const removedOrders = w.removedOrders ? { ...w.removedOrders } : void 0;
   if (removedOrders) delete removedOrders[order.poNumber];
   return normalizeWorkspace({ ...w, ...removedOrders ? { removedOrders } : {}, orders: [order, ...w.orders.filter((o) => o.poNumber !== order.poNumber)] });
@@ -1183,18 +1265,24 @@ function sourceLabels(...values) {
 function trackingRows(w, refs, erp) {
   const rows = /* @__PURE__ */ new Map();
   const closed = new Set(refs?.completedShipmentOrders || []);
-  for (const r of refs?.tracking || []) rows.set(r.id, { ...r, ...w.tracking[r.id], internalFields: { ...r.internalFields, ...closed.has(JSON.stringify([r.scNumber, r.poNumber])) ? { _shipmentClosed: "Y" } : {}, ...w.tracking[r.id]?.internalFields }, bulk: { ...r.bulk, ...w.tracking[r.id]?.bulk } });
-  for (const o of w.orders) for (const itemNo of [...new Set(o.items.map((i) => i.itemNo))]) {
-    const items = o.items.filter((i2) => i2.itemNo === itemNo), i = items[0];
-    const candidates = [...rows.values()].filter((r) => r.poNumber === o.poNumber && r.itemNo === itemNo && r.scNumber === o.piNumber);
-    const prior = candidates.length === 1 ? candidates[0] : void 0;
-    if (prior) rows.delete(prior.id);
-    const id = `order:${o.poNumber}|${itemNo}`;
-    rows.set(id, { unit: "PO \u55AE\u4F4D", season: seasonOf(itemNo), brand: "", status: "\u5DF2\u532F\u5165\u5F85\u6838\u5C0D", tp: "", labDip: "", fitSample: "", pps: "", fabricTestDate: "", fabricTestStatus: "\u5F85\u5B89\u6392", cutting: "", sewing: "", shippingSample: "", inspection: "", packing: "", remarks: "", ...prior, ...w.tracking[prior?.id || ""], ...w.tracking[id], bulk: { ...prior?.bulk, ...w.tracking[prior?.id || ""]?.bulk, ...w.tracking[id]?.bulk }, internalFields: { ...closed.has(JSON.stringify([o.piNumber, o.poNumber])) ? { _shipmentClosed: "Y" } : {}, ...prior?.internalFields, ...w.tracking[prior?.id || ""]?.internalFields, ...w.tracking[id]?.internalFields }, id, scNumber: o.piNumber, poNumber: o.poNumber, itemNo, company: o.orderingCompany || o.customerName, supplier: items.map((i2) => i2.factoryProduct?.supplier || o.factorySupplier || prior?.supplier || "").filter((s, n, a) => a.indexOf(s) === n).join(" / "), customerDate: o.shipmentDate, factoryDate: o.factoryShipDate, quantity: items.reduce((n, i2) => n + i2.totalQuantity, 0), source: o.sourceFileName || "\u672C\u6A5F PO" });
+  for (const r of refs?.tracking || []) {
+    const itemNo = verifiedTrackingStyle(r.poNumber, r.itemNo);
+    rows.set(r.id, { ...r, ...w.tracking[r.id], itemNo, internalFields: { ...r.internalFields, ...closed.has(JSON.stringify([r.scNumber, r.poNumber])) ? { _shipmentClosed: "Y" } : {}, ...w.tracking[r.id]?.internalFields, ...itemNo !== r.itemNo ? { O: itemNo, _verifiedOriginalStyle: r.itemNo } : {} }, bulk: { ...r.bulk, ...w.tracking[r.id]?.bulk } });
+  }
+  for (const original of w.orders) {
+    const o = sizeVariantOrder(original);
+    for (const itemNo of [...new Set(o.items.map(pricingCode))]) {
+      const items = o.items.filter((i2) => pricingCode(i2) === itemNo), i = items[0];
+      const candidates = [...rows.values()].filter((r) => r.poNumber === o.poNumber && r.itemNo === itemNo && r.scNumber === o.piNumber);
+      const prior = candidates.length === 1 ? candidates[0] : void 0;
+      if (prior) rows.delete(prior.id);
+      const id = `order:${o.poNumber}|${itemNo}`;
+      rows.set(id, { unit: "PCS", season: seasonOf(itemNo), brand: "", status: "\u5DF2\u532F\u5165\u5F85\u6838\u5C0D", tp: "", labDip: "", fitSample: "", pps: "", fabricTestDate: "", fabricTestStatus: "\u5F85\u5B89\u6392", cutting: "", sewing: "", shippingSample: "", inspection: "", packing: "", remarks: "", ...prior, ...w.tracking[prior?.id || ""], ...w.tracking[id], bulk: { ...prior?.bulk, ...w.tracking[prior?.id || ""]?.bulk, ...w.tracking[id]?.bulk }, internalFields: { ...closed.has(JSON.stringify([o.piNumber, o.poNumber])) ? { _shipmentClosed: "Y" } : {}, ...prior?.internalFields, ...w.tracking[prior?.id || ""]?.internalFields, ...w.tracking[id]?.internalFields }, id, scNumber: o.piNumber, poNumber: o.poNumber, itemNo, company: o.orderingCompany || o.customerName, supplier: items.map((i2) => i2.factoryProduct?.supplier || o.factorySupplier || prior?.supplier || "").filter((s, n, a) => a.indexOf(s) === n).join(" / "), customerDate: o.shipmentDate, factoryDate: o.factoryShipDate, quantity: items.reduce((n, i2) => n + i2.totalQuantity, 0), source: o.sourceFileName || "\u672C\u6A5F PO" });
+    }
   }
   return normalizeTrackingFactories([...rows.values()].map((r) => {
     const synced = syncTracking(r, w), order = w.orders.find((o) => o.poNumber === r.poNumber && o.piNumber === r.scNumber), series = cleanSeries(order?.series || r.series || r.internalFields?.E || r.brand), brand = canonicalBrand(order?.brand || r.internalFields?.D || brandOf(series));
-    return { ...synced, brand, series, internalFields: { ...synced.internalFields, D: brand, E: series, C: synced.season } };
+    return { ...synced, unit: trackingQuantityUnit(synced.unit), brand, series, internalFields: { ...synced.internalFields, D: brand, E: series, C: synced.season } };
   }), erp);
 }
 function shipmentQuantity(s) {
@@ -1204,7 +1292,12 @@ function newShipment(o, id) {
   return { id, poNumber: o.poNumber, scNumber: o.piNumber, customer: o.customerName, address: o.deliveryAddress || o.customerAddress, invoiceNo: `${o.piNumber}-${id.slice(-6)}`, date: "", vessel: "", container: "", fromPort: o.port, toPort: "", remarks: "", confirmed: false, lines: o.items.flatMap((i) => i.colors.map((c) => ({ id: `${i.id}:${c.id}`, itemNo: i.itemNo, description: i.description || i.styleName, color: `${c.colorCode} ${c.colorName}`, unit: i.factoryProduct?.unit === "\u96D9" || i.itemNo === "ABCRA07" ? "PAIRS" : "PCS", planned: c.totalQuantity, sizes: Object.fromEntries(i.sizes.map((size) => [size, 0])), unitPriceUSD: i.unitPriceUSD, supplier: i.factoryProduct?.supplier || o.factorySupplier, cartons: 0, netWeight: 0, grossWeight: 0, cbm: 0 }))) };
 }
 function shipmentIssues(s, all = [], order) {
-  const issues = [];
+  const issues = [...shipmentSelectionIssues(s)];
+  if (s.factoryNotice?.lcEntries) try {
+    for (const l of s.lines.filter((l2) => shipmentQuantity(l2) > 0)) lcForLine(s, l.id);
+  } catch (e) {
+    issues.push(e instanceof Error ? e.message : String(e));
+  }
   if (s.lines.some((l) => l.packingRows?.length)) issues.push(...packingIssues(s));
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s.date) || Number.isNaN(Date.parse(s.date)) || new Date(s.date).toISOString().slice(0, 10) !== s.date) issues.push("\u8ACB\u586B\u6709\u6548\u7684\u5BE6\u969B\u51FA\u8CA8\u65E5\u671F");
   if (!s.invoiceNo.trim()) issues.push("\u8ACB\u586B Invoice \u865F\u78BC");

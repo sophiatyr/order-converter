@@ -1,5 +1,6 @@
 import type {TrackingRecord,Workspace} from './workspace';
 import {poStyleItems,shipmentStyleQuantity} from './trackingPoSource';
+import {sharedProgressFields,progressColumns} from './trackingProgress';
 
 export function localToday(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
 export function activeTrackingRows(rows:TrackingRecord[]){
@@ -13,7 +14,7 @@ export function daysToFactory(value:string,today=localToday()){
  const n=(parse(value)-parse(today))/86400000;return Number.isFinite(n)?Math.round(n):null;
 }
 export function syncTracking(r:TrackingRecord,w:Workspace):TrackingRecord{
- const fields={...r.internalFields},bulk={...r.bulk};const order=w.orders.find(o=>o.poNumber===r.poNumber&&o.piNumber===r.scNumber);
+ const fields=sharedProgressFields(r),bulk={...r.bulk};const order=w.orders.find(o=>o.poNumber===r.poNumber&&o.piNumber===r.scNumber);
  if(!order&&fields._profitFormula&&Number(fields.H)>0&&fields.L!==''){
   const cost=fields._costCurrency==='USD'?Number(fields.L):Number(fields._rmbPerUsd)>0?Number(fields.L)/Number(fields._rmbPerUsd):null;
   if(cost!==null&&Number.isFinite(cost)){fields.M=String(cost);fields.N=String((Number(fields.H)-cost)/Number(fields.H));fields._saleForMargin=fields.H;}
@@ -48,7 +49,7 @@ export function trackingTargets(rows:TrackingRecord[],scope:'style'|'order'|'fil
  if(scope==='filter')return picked;
  return eligible.filter(r=>picked.some(p=>scope==='style'?p.itemNo===r.itemNo&&p.season===r.season&&p.company===r.company:p.poNumber===r.poNumber&&p.scNumber===r.scNumber));
 }
-const stageColumns:Record<string,string>={tp:'W',labDip:'AA',fitSample:'AB',shippingSample:'AF',inspection:'AH'};
+const stageColumns=progressColumns;
 export function applyTrackingStage(w:Workspace,rows:TrackingRecord[],phase:string,date:string,status:string){
  const tracking={...w.tracking};
  for(const r of rows){const old=tracking[r.id]||{},bulk={...r.bulk,...old.bulk,[phase+'Date']:date,[phase+'Status']:status},internalFields={...old.internalFields};

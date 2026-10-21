@@ -14,7 +14,7 @@ const release=JSON.parse(fs.readFileSync(path.join(buildRoot,'release.json'),'ut
 if(!/^\d{4}\.\d{2}\.\d{2}\.\d+$/.test(release.version))throw Error('缺少有效版號');
 file(path.join(buildRoot,'release.json'),'dist/release.json');
 for(const name of ['assets','vendor','branding'])tree(path.join(buildRoot,name),'dist/'+name);
-for(const name of ['manifest.json','sw.js','icon-192.png','icon-512.png','apple-touch-icon.png'])if(fs.existsSync(path.join(buildRoot,name)))file(path.join(buildRoot,name),'dist/'+name);
+for(const name of ['csq-factory-packing-standard.xlsx','manifest.json','sw.js','icon-192.png','icon-512.png','apple-touch-icon.png'])if(fs.existsSync(path.join(buildRoot,name)))file(path.join(buildRoot,name),'dist/'+name);
 for(const name of ['nasServer.mjs','nasDatabase.mjs','workspace-validation.mjs'])file('server/'+name,'server/'+name);
 for(const name of ['package.json','package-lock.json'])file(name,name);
 file('deploy/nas/Dockerfile','Dockerfile');
@@ -42,7 +42,7 @@ zip.file('更新說明.txt',`CSQ NAS 程式更新 ${date}
 升級失敗時還原先前程式並重新建置；保留目前 data/，不要直接以舊資料庫覆蓋。
 `);
 zip.file('程式版本.json',JSON.stringify({...release,files},null,2));
-const forbidden=Object.keys(zip.files).filter(n=>/(^|\/)(data|\.env)(\/|$)|\.sqlite|csq-.*\.json$|erp-products\.json$|\.pdf$|\.xlsx?$/i.test(n));
+const forbidden=Object.keys(zip.files).filter(n=>n!=='dist/csq-factory-packing-standard.xlsx'&&/(^|\/)(data|\.env)(\/|$)|\.sqlite|csq-.*\.json$|erp-products\.json$|\.pdf$|\.xlsx?$/i.test(n));
 if(forbidden.length)throw new Error('更新包包含非程式檔案：'+forbidden.join(','));
 fs.mkdirSync('releases',{recursive:true});const output=`releases/CSQ_NAS_程式更新_${release.version}.zip`;
 fs.writeFileSync(output,await zip.generateAsync({type:'nodebuffer',compression:'DEFLATE'}));

@@ -2,7 +2,7 @@ import type {Shipment,ShipmentLine} from './workspace';
 export interface CartonRow {id:string;from:number;to:number;sizes:Record<string,number>;netWeight:number;grossWeight:number;cbm:number;measurement:string}
 export function cartonCount(r:CartonRow){return Math.max(0,r.to-r.from+1);}
 export function withCartons(l:ShipmentLine,rows:CartonRow[]):ShipmentLine{
- if(!rows.length)return {...l,packingRows:rows};
+ if(!rows.length)return {...l,packingRows:rows,sizes:Object.fromEntries(Object.keys(l.sizes).map(k=>[k,0])),cartons:0,netWeight:0,grossWeight:0,cbm:0};
  return {...l,packingRows:rows,sizes:Object.fromEntries(Object.keys(l.sizes).map(k=>[k,rows.reduce((n,r)=>n+(r.sizes[k]||0)*cartonCount(r),0)])),cartons:rows.reduce((n,r)=>n+cartonCount(r),0),netWeight:rows.reduce((n,r)=>n+r.netWeight*cartonCount(r),0),grossWeight:rows.reduce((n,r)=>n+r.grossWeight*cartonCount(r),0),cbm:rows.reduce((n,r)=>n+r.cbm*cartonCount(r),0)};
 }
 export function packingIssues(s:Shipment){

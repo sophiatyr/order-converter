@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {createContainerOrders,containerMembers,containerBatchKey,remainingSizes,changeContainerSelection,updateContainerCommon} from '../src/utils/containerShipments';
+import {emptyWorkspace,shipmentIssues,shipmentQuantity} from '../src/utils/workspace';
+import {shipmentSelectionIssues} from '../src/utils/shipmentSelection';
+import {withCartons} from '../src/utils/shipmentPacking';
+import {containerBookingRecipe} from '../src/utils/shippingNativeRecipes';
+const source=JSON.parse(fs.readFileSync('public/csq-workspace-references.json','utf8')).orders.find((o:any)=>o.items?.some((i:any)=>i.colors?.length));
+const a=structuredClone(source),b=structuredClone(source);a.poNumber='TEST-PO-A';a.piNumber='TEST-SC-A';b.poNumber='TEST-PO-B';b.piNumber='TEST-SC-B';b.factorySupplier='OTHER FACTORY';a.port=b.port='XIAMEN';
+for(const o of [a,b]){o.items=o.items.slice(0,1);o.items[0].factoryProduct=undefined;o.items[0].colors=o.items[0].colors.slice(0,1);const c=o.items[0].colors[0];o.items[0].sizes=['S','M'];c.quantitiesBySize={S:100,M:80};c.totalQuantity=180;o.totalPieces=180;}
+let n=0;const shipments=createContainerOrders([a,b],[],()=>`id-${++n}`);assert.equal(new Set(shipments.map(containerBatchKey)).size,1);assert.equal(containerMembers(shipments[0],shipments).length,2);assert.notEqual(shipments[0].invoiceNo,shipments[1].invoiceNo);assert.equal(shipments[1].lines[0].supplier,'OTHER FACTORY');
+const first=shipments[0],line=first.lines[0],before=JSON.stringify([a,b]);
+const partial=changeContainerSelection(first,a,shipments,line.id,{S:30,M:0});assert.equal(partial.lines[0].planned,30);assert.equal(shipmentQuantity(partial.lines[0]),0);assert.equal(changeContainerSelection(partial,a,shipments,line.id,null).lines.length,0);assert.throws(()=>changeContainerSelection(first,a,shipments,line.id,{S:101,M:0}));assert.throws(()=>changeContainerSelection(first,a,shipments,line.id,{S:1.5,M:0}));assert.throws(()=>changeContainerSelection(first,a,shipments,line.id,{XXL:1}));
+const packed={...partial,lines:[{...partial.lines[0],sizes:{S:31,M:0}}]};assert(shipmentSelectionIssues(packed).length>0);assert(shipmentIssues(packed,shipments,a).some(s=>s.includes('本次選取量')));assert.throws(()=>changeContainerSelection(packed,a,shipments,line.id,null));
+const historical={...partial,id:'history',confirmed:true,lines:[{...partial.lines[0],sizes:{S:30,M:10}}]};assert.deepEqual(remainingSizes(a,line,[historical],first.id),{S:70,M:70});assert.deepEqual(remainingSizes(b,shipments[1].lines[0],[historical],shipments[1].id),{S:100,M:80});
+const future=createContainerOrders([a],[historical],()=>`id-${++n}`,shipments[1]);assert.equal(future[0].lines[0].planned,140);assert.equal(containerBatchKey(future[0]),containerBatchKey(shipments[1]));
+const w={...emptyWorkspace(),orders:[a,b],shipments};const common=updateContainerCommon(w,first,'container','TEST-CNTR');assert(common.shipments.every(s=>s.container==='TEST-CNTR'));assert(w.shipments.every(s=>s.container===''));assert.equal(JSON.stringify([a,b]),before);
+const ready=common.shipments.map(s=>({...s,factoryNotice:{...s.factoryNotice,bookingConfirmed:'Y',estimateLines:JSON.stringify([{lineId:s.lines[0].id,quantity:30,cartons:2,grossWeight:20,cbm:.2}])}}));
+const booking=containerBookingRecipe(ready,[a,b],'booking');assert.equal(booking.sheets[0].body!.rows.length,2);assert(booking.sheets[0].body!.rows[0].values[0]?.toString().includes(a.poNumber));assert(booking.sheets[0].body!.rows[1].values[0]?.toString().includes(b.poNumber));assert.deepEqual(booking.sheets[0].formulas.find(p=>p[0]==='G42'),['G42','=SUM(G40:G41)']);
+const ocean=containerBookingRecipe(ready,[a,b],'ocean');assert.equal(ocean.sheets[0].patches.find(p=>p[0]==='E34')?.[1],4);assert.equal(ocean.sheets[0].patches.find(p=>p[0]==='M34')?.[1],40);assert(ocean.sheets[0].patches.find(p=>p[0]==='H22')?.[1]?.toString().includes(b.poNumber));assert.throws(()=>containerBookingRecipe([ready[0],{...ready[1],fromPort:'SHANGHAI'}],[a,b],'booking'));
+assert.equal(withCartons(packed.lines[0],[]).sizes.S,0);
+console.log('PASS container shipments: multiple POs/factories, partial style/colour/size selection, remaining balances, independent invoices, over-shipment guards, shared route, aggregate booking totals, immutable original POs.');

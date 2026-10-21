@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {emptyWorkspace,type TrackingRecord} from '../src/utils/workspace';
+import {internalTemplatePayload} from '../src/utils/internalTrackingTemplate';
+import {validateInternalPayload} from '../scripts/internal-tracking-export.mjs';
+const row=(id:string,po:string,sku:string)=>({id,poNumber:po,scNumber:'CS'+po,itemNo:sku,quantity:100,unit:'PCS',season:'SS27',brand:'ABC',company:'CISALFA',supplier:'RJ',factoryDate:'2026-11-01',customerDate:'2026-12-01',status:'尚未出貨',source:'test',tp:'',labDip:'',fitSample:'',pps:'',fabricTestDate:'',fabricTestStatus:'',cutting:'',sewing:'',shippingSample:'',inspection:'',packing:'',remarks:'',internalFields:{H:'1000',L:'800',_costCurrency:'USD',_scopeH:'same-order',_scopeL:'same-factory'},bulk:{fitSampleDate:'2026-10-20'}} as TrackingRecord);
+const a=row('a','26OF028473','ABCTW070CO'),b=row('b','26OF028473','ABCTM030CO'),other=row('c','26OFOTHER','OTHER');
+const payload=internalTemplatePayload([a],[a,b,other],emptyWorkspace());assert.equal(payload.rows.length,2,'Style filter must export a complete PO so merged totals stay valid');assert.deepEqual(payload.rows[0].aliases,['ABCTW070CO','ABCTW070S27']);assert.equal(payload.rows[0].values[15],100);assert.equal(payload.rows[0].values[7],1000);assert.equal(payload.rows[0].values[1],'26OF028473');assert.equal(typeof payload.rows[0].values[27],'number','Shared fit sample date must be a numeric Excel date');assert.equal(payload.rows[0].values.length,46);assert.doesNotThrow(()=>validateInternalPayload(payload));
+assert.throws(()=>validateInternalPayload({rows:[{...payload.rows[0],values:[1]}]}));assert.throws(()=>validateInternalPayload({rows:[payload.rows[0],payload.rows[0]]}));assert.throws(()=>validateInternalPayload({rows:[{...payload.rows[0],rate:-1}]}));assert.throws(()=>internalTemplatePayload([],[],emptyWorkspace()));
+const legacyUnit={...a,unit:'PO 單位',internalFields:{...a.internalFields,Q:'PO 單位'}};
+assert.equal(internalTemplatePayload([legacyUnit],[legacyUnit],emptyWorkspace()).rows[0].values[16],'PCS','Legacy placeholder units must export as PCS');
+assert.equal(internalTemplatePayload([{...a,unit:'PAIRS'}],[{...a,unit:'PAIRS'}],emptyWorkspace()).rows[0].values[16],'PAIRS','Explicit pair quantities retain their unit');
+console.log('PASS: internal original-template payload uses full POs, typed dates and amounts, exact aliases, PCS units and validated data.');

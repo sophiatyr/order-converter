@@ -20,7 +20,16 @@ const order=parseGridToOrder(pages.flatMap(page=>[[],...layoutToRows(page)])).or
 const snapshot:ErpSnapshot=JSON.parse(fs.readFileSync('public/erp-products.json','utf8'));
 const drafts:Record<string,FactoryAssignment>={};
 for(const style of new Set(order.items.map(i=>i.itemNo))){const p=snapshot.products.find(p=>p.itemNo===style),q=p!.purchasePrices!.find(q=>q.remarks.includes(order.piNumber));assert.ok(q);drafts[style]={supplierCode:q.party,supplier:q.partyName||q.party,currency:q.currency as 'USD'|'RMB',price:String(q.price),date:q.date,unit:'件'};}
-const assigned=assignStyleFactories(order,drafts),groups=erpFactoryOrders(assigned);
+// LAN HTTP browsers expose getRandomValues but may not expose randomUUID.
+const assigned=(()=>{
+ const descriptor=Object.getOwnPropertyDescriptor(crypto,'randomUUID');
+ Object.defineProperty(crypto,'randomUUID',{configurable:true,value:undefined});
+ try{return assignStyleFactories(order,drafts);}
+ finally{if(descriptor)Object.defineProperty(crypto,'randomUUID',descriptor);else delete (crypto as unknown as {randomUUID?:unknown}).randomUUID;}
+})();
+assert.equal(new Set(assigned.items.map(i=>i.factoryPriceRecord!.id)).size,Object.keys(drafts).length);
+assert.ok(assigned.items.every(i=>/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(i.factoryPriceRecord!.id)));
+const groups=erpFactoryOrders(assigned);
 assert.equal(groups.length,2);assert.equal(groups.find(g=>g.order.supplierCode==='XHX')!.order.totalPieces,9002);assert.equal(groups.find(g=>g.order.supplierCode==='YLS')!.order.totalPieces,18210);
 assert.equal(groups.find(g=>g.order.supplierCode==='XHX')!.order.factoryCurrency,'USD');assert.equal(groups.find(g=>g.order.supplierCode==='YLS')!.order.factoryCurrency,'RMB');
 assert.equal(assigned.totalPieces,order.totalPieces);assert.equal(assigned.totalAmountUSD,order.totalAmountUSD);

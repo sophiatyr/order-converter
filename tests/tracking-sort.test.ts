@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {sortTrackingRows} from '../src/utils/trackingSort';
+import {emptyWorkspace,upsertOrder,type TrackingRecord} from '../src/utils/workspace';
+import {internalTemplatePayload} from '../src/utils/internalTrackingTemplate';
+import type {OrderData} from '../src/types/order';
+const record=(po:string,sc:string,date?:string)=>({id:sc,poNumber:po,scNumber:sc,itemNo:'TEST',quantity:1,unit:'PCS',supplier:'',internalFields:{},importedAt:date} as TrackingRecord);
+const rows=[record('26OF048122','C'),record('26OF048119','B'),record('26OF048116','A'),record('PO10','TEN'),record('PO2','TWO'),record('26OF048119','B0','2026-10-19T02:00:00Z')];
+const w=emptyWorkspace();
+assert.deepEqual(sortTrackingRows(rows,w).map(r=>r.id),['A','B0','B','C','TWO','TEN']);
+assert.equal(rows[0].id,'C','Sorting must not mutate the source');
+const payload=internalTemplatePayload(rows,rows,w);
+assert.deepEqual(payload.rows.map(r=>r.id),['A','B0','B','C','TWO','TEN']);
+const input={poNumber:'NEW',items:[]} as unknown as OrderData;
+const first=upsertOrder(w,input),stamp=first.orders[0].importedAt!;
+assert.ok(Number.isFinite(Date.parse(stamp)));
+assert.equal(upsertOrder(first,{...input,importedAt:'2020-01-01T00:00:00Z'}).orders[0].importedAt,stamp,'Edits must retain first import timestamp');
+const legacy={...w,orders:[input]};assert.equal(upsertOrder(legacy,input).orders[0].importedAt,undefined,'Do not invent import dates for historical orders');
+console.log('PASS: natural PO + import-date ordering, identical export payload, stable rows and preserved first import date.');

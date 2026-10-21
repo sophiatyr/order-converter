@@ -4,6 +4,8 @@ import type {TrackingRecord,Shipment} from './workspace';
 import {bulkPhases,bulkOrderLabels,internalLabels,columnKey,overallCheck} from './trackingFields';
 import {daysToFactory} from './trackingAutomation';
 import {poStyleItems,shipmentStyleQuantity} from './trackingPoSource';
+import {sharedProgressFields} from './trackingProgress';
+import {trackingQuantityUnit} from './trackingUnits';
 import type {OrderItem} from '../types/order';
 
 export function poColorItemNumber(item:OrderItem,colorCode:string){
@@ -43,7 +45,7 @@ function dateValue(value:string){
 }
 export function internalValues(r:TrackingRecord){
  const base:Record<string,string>={A:r.scNumber,B:r.poNumber,C:r.season,D:r.brand,E:r.series||r.brand,F:r.company,J:r.supplier,O:r.itemNo,P:String(r.quantity),Q:r.unit,T:r.customerDate,U:r.factoryDate,W:r.tp,AA:r.labDip,AB:r.fitSample,AD:r.pps,AF:r.shippingSample,AH:r.inspection};
- const values={...base,...r.internalFields};const days=daysToFactory(r.factoryDate||values.U||'');values.V=days===null?'':String(days);return values;
+ const values={...base,...sharedProgressFields(r)};values.Q=trackingQuantityUnit(values.Q);const days=daysToFactory(r.factoryDate||values.U||'');values.V=days===null?'':String(days);return values;
 }
 export function buildInternalTracking(rows:TrackingRecord[]){
  const w=new ExcelJS.Workbook(),s=w.addWorksheet('內部訂單追蹤');s.addRow(['內部使用：包含價格、利潤及收付款資料']);s.mergeCells(1,1,1,46);s.addRow(internalLabels);

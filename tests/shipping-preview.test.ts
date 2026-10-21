@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import * as XLSX from 'xlsx';
+import {shippingPreviewBounds} from '../src/utils/shippingPreview';
+const sheet=XLSX.utils.aoa_to_sheet([['Invoice'],['QTY','AMOUNT'],[20,100]]);
+sheet['!ref']='A1:IT1048';sheet.IT1048={t:'s',v:''};sheet['!merges']=[{s:{r:0,c:0},e:{r:0,c:5}},{s:{r:99,c:0},e:{r:1047,c:249}}];
+assert.deepEqual(shippingPreviewBounds(sheet),{rows:3,columns:6},'Original templates may have hundreds of empty styled columns; preview follows actual data and populated merges.');
+sheet.B3={t:'n',v:100,f:'A3*5',w:'100.00'};assert.equal(shippingPreviewBounds(sheet).rows,3);
+assert.deepEqual(shippingPreviewBounds({'!ref':'A1:IT1000'}),{rows:0,columns:0});
+const bytes=XLSX.write({SheetNames:['Invoice','PackingList'],Sheets:{Invoice:sheet,PackingList:XLSX.utils.aoa_to_sheet([['CARTONS'],[2]])}},{type:'buffer',bookType:'xlsx'}),before=Buffer.from(bytes);const loaded=XLSX.read(bytes,{type:'array'});for(const name of loaded.SheetNames)shippingPreviewBounds(loaded.Sheets[name]);assert.deepEqual(Buffer.from(bytes),before,'Rendering cannot change the file offered for download.');
+assert.equal(loaded.Sheets.Invoice.B3.f,'A3*5');assert.equal(loaded.Sheets.Invoice.B3.v,100);
+console.log('PASS shipping preview: data bounds, multiple sheets, cached formula values and unchanged original download bytes.');

@@ -1,3 +1,6 @@
+import {lcForLine} from './shipmentLc';
+import {trackingQuantityUnit} from './trackingUnits';
+import {shipmentSelectionIssues} from './shipmentSelection';
 import type {ClassificationOption} from './classificationOptions';
 import {pricingCode,sizeVariantOrder} from './sizeVariants';
 import {verifiedTrackingStyle} from './verifiedTrackingStyles';
@@ -13,6 +16,7 @@ export const WORKSPACE_KEY='CSQ_WORKSPACE_V1';
 export const modules=[['orders','訂單作業'],['tracking','訂單追蹤'],['shipping','出貨作業'],['development','開發管理'],['products','產品資料'],['data','數據管理']] as const;
 export type ModuleId=typeof modules[number][0];
 export interface TrackingRecord {
+ importedAt?:string;
  shippedQuantity?:number;series?:string;sourceIssue?:string;supplierCode?:string;supplierName?:string;
  internalFields?:Record<string,string>;bulk?:Record<string,string>;color?:string;description?:string;customerItem?:string;
  id:string;scNumber:string;poNumber:string;itemNo:string;quantity:number;unit:string;season:string;brand:string;company:string;supplier:string;customerDate:string;factoryDate:string;status:string;source:string;
@@ -29,7 +33,7 @@ export function emptyWorkspace():Workspace{return {version:1,orders:[],tracking:
 export function normalizeWorkspace(w:Workspace):Workspace{
  return {...w,...(w.classificationOptions?{classificationOptions:Object.fromEntries(Object.entries(w.classificationOptions).map(([id,o])=>[id,{...o,value:o.kind==='series'?canonicalSeries(o.value):o.kind==='brand'?canonicalBrand(o.value):o.kind==='season'?canonicalSeason(o.value):o.value.trim().toUpperCase()}]))}:{}),orders:w.orders.map(normalizeClassification),developments:w.developments.map(normalizeClassification),productNotes:Object.fromEntries(Object.entries(w.productNotes).map(([key,value])=>[key,normalizeClassification(value)])),tracking:Object.fromEntries(Object.entries(w.tracking).map(([key,value])=>[key,{...normalizeClassification(value),...(value.internalFields?{internalFields:{...value.internalFields,...(value.internalFields.D!==undefined?{D:canonicalBrand(value.internalFields.D)}:{}),...(value.internalFields.E!==undefined?{E:cleanSeries(value.internalFields.E)}:{})}}:{})}]))};
 }
-export function upsertOrder(w:Workspace,order:OrderData):Workspace{const removedOrders=w.removedOrders?{...w.removedOrders}:undefined;if(removedOrders)delete removedOrders[order.poNumber];return normalizeWorkspace({...w,...(removedOrders?{removedOrders}:{}),orders:[order,...w.orders.filter(o=>o.poNumber!==order.poNumber)]});}
+export function upsertOrder(w:Workspace,order:OrderData):Workspace{const prior=w.orders.find(o=>o.poNumber===order.poNumber);order={...order,importedAt:prior?prior.importedAt||order.importedAt:order.importedAt||new Date().toISOString()};const removedOrders=w.removedOrders?{...w.removedOrders}:undefined;if(removedOrders)delete removedOrders[order.poNumber];return normalizeWorkspace({...w,...(removedOrders?{removedOrders}:{}),orders:[order,...w.orders.filter(o=>o.poNumber!==order.poNumber)]});}
 export function loadWorkspace(raw:string|null,current:OrderData|null):Workspace {
  let w=emptyWorkspace();
  if(raw){
@@ -62,14 +66,15 @@ export function trackingRows(w:Workspace,refs:ReferenceSnapshot|null,erp?:ErpSna
   const candidates=[...rows.values()].filter(r=>r.poNumber===o.poNumber&&r.itemNo===itemNo&&r.scNumber===o.piNumber);const prior=candidates.length===1?candidates[0]:undefined;
   if(prior)rows.delete(prior.id);
   const id=`order:${o.poNumber}|${itemNo}`;
-  rows.set(id,{unit:'PO 單位',season:seasonOf(itemNo),brand:'',status:'已匯入待核對',tp:'',labDip:'',fitSample:'',pps:'',fabricTestDate:'',fabricTestStatus:'待安排',cutting:'',sewing:'',shippingSample:'',inspection:'',packing:'',remarks:'',...prior,...w.tracking[prior?.id||''],...w.tracking[id],bulk:{...prior?.bulk,...w.tracking[prior?.id||'']?.bulk,...w.tracking[id]?.bulk},internalFields:{...(closed.has(JSON.stringify([o.piNumber,o.poNumber]))?{_shipmentClosed:'Y'}:{}),...prior?.internalFields,...w.tracking[prior?.id||'']?.internalFields,...w.tracking[id]?.internalFields},id,scNumber:o.piNumber,poNumber:o.poNumber,itemNo,company:o.orderingCompany||o.customerName,supplier:items.map(i=>i.factoryProduct?.supplier||o.factorySupplier||prior?.supplier||'').filter((s,n,a)=>a.indexOf(s)===n).join(' / '),customerDate:o.shipmentDate,factoryDate:o.factoryShipDate,quantity:items.reduce((n,i)=>n+i.totalQuantity,0),source:o.sourceFileName||'本機 PO'});
+  rows.set(id,{unit:'PCS',season:seasonOf(itemNo),brand:'',status:'已匯入待核對',tp:'',labDip:'',fitSample:'',pps:'',fabricTestDate:'',fabricTestStatus:'待安排',cutting:'',sewing:'',shippingSample:'',inspection:'',packing:'',remarks:'',...prior,...w.tracking[prior?.id||''],...w.tracking[id],bulk:{...prior?.bulk,...w.tracking[prior?.id||'']?.bulk,...w.tracking[id]?.bulk},internalFields:{...(closed.has(JSON.stringify([o.piNumber,o.poNumber]))?{_shipmentClosed:'Y'}:{}),...prior?.internalFields,...w.tracking[prior?.id||'']?.internalFields,...w.tracking[id]?.internalFields},id,scNumber:o.piNumber,poNumber:o.poNumber,itemNo,company:o.orderingCompany||o.customerName,supplier:items.map(i=>i.factoryProduct?.supplier||o.factorySupplier||prior?.supplier||'').filter((s,n,a)=>a.indexOf(s)===n).join(' / '),customerDate:o.shipmentDate,factoryDate:o.factoryShipDate,quantity:items.reduce((n,i)=>n+i.totalQuantity,0),source:o.sourceFileName||'本機 PO'});
  }}
- return normalizeTrackingFactories([...rows.values()].map(r=>{const synced=syncTracking(r,w),order=w.orders.find(o=>o.poNumber===r.poNumber&&o.piNumber===r.scNumber),series=cleanSeries(order?.series||r.series||r.internalFields?.E||r.brand),brand=canonicalBrand(order?.brand||r.internalFields?.D||brandOf(series));return {...synced,brand,series,internalFields:{...synced.internalFields,D:brand,E:series,C:synced.season}};}),erp);
+ return normalizeTrackingFactories([...rows.values()].map(r=>{const synced=syncTracking(r,w),order=w.orders.find(o=>o.poNumber===r.poNumber&&o.piNumber===r.scNumber),series=cleanSeries(order?.series||r.series||r.internalFields?.E||r.brand),brand=canonicalBrand(order?.brand||r.internalFields?.D||brandOf(series));return {...synced,unit:trackingQuantityUnit(synced.unit),brand,series,internalFields:{...synced.internalFields,D:brand,E:series,C:synced.season}};}),erp);
 }
 export function shipmentQuantity(s:ShipmentLine){return Object.values(s.sizes).reduce((a,b)=>a+b,0);}
 export function newShipment(o:OrderData,id:string):Shipment{return {id,poNumber:o.poNumber,scNumber:o.piNumber,customer:o.customerName,address:o.deliveryAddress||o.customerAddress,invoiceNo:`${o.piNumber}-${id.slice(-6)}`,date:'',vessel:'',container:'',fromPort:o.port,toPort:'',remarks:'',confirmed:false,lines:o.items.flatMap(i=>i.colors.map(c=>({id:`${i.id}:${c.id}`,itemNo:i.itemNo,description:i.description||i.styleName,color:`${c.colorCode} ${c.colorName}`,unit:i.factoryProduct?.unit==='雙'||i.itemNo==='ABCRA07'?'PAIRS':'PCS',planned:c.totalQuantity,sizes:Object.fromEntries(i.sizes.map(size=>[size,0])),unitPriceUSD:i.unitPriceUSD,supplier:i.factoryProduct?.supplier||o.factorySupplier,cartons:0,netWeight:0,grossWeight:0,cbm:0}))) };}
 export function shipmentIssues(s:Shipment,all:Shipment[]=[],order?:OrderData){
- const issues:string[]=[];
+ const issues:string[]=[...shipmentSelectionIssues(s)];
+ if(s.factoryNotice?.lcEntries)try{for(const l of s.lines.filter(l=>shipmentQuantity(l)>0))lcForLine(s,l.id);}catch(e){issues.push(e instanceof Error?e.message:String(e));}
  if(s.lines.some(l=>l.packingRows?.length))issues.push(...packingIssues(s));
  if(!/^\d{4}-\d{2}-\d{2}$/.test(s.date)||Number.isNaN(Date.parse(s.date))||new Date(s.date).toISOString().slice(0,10)!==s.date)issues.push('請填有效的實際出貨日期');
  if(!s.invoiceNo.trim())issues.push('請填 Invoice 號碼');

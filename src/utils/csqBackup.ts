@@ -7,6 +7,7 @@ export function readCsqBackup(text: string): OrderData {
   const saved = JSON.parse(text);
   const source = saved?.order;
   if (saved?.account === 'CSQ' && saved?.version === 1 && source?.poNumber && Array.isArray(source.items) && source.items.length) {
+    if(source.importedAt!==undefined&&(typeof source.importedAt!=='string'||!/^\d{4}-\d{2}-\d{2}T/.test(source.importedAt)||!Number.isFinite(Date.parse(source.importedAt))))throw new Error('訂單匯入日期格式不符。');
     if(source.requiresAntiCounterfeitLabel!==undefined&&typeof source.requiresAntiCounterfeitLabel!=='boolean')throw new Error('防偽標設定格式不符。');
     if(source.normalCartonQuantity!==undefined&&(!Number.isInteger(source.normalCartonQuantity)||source.normalCartonQuantity<1))throw new Error('單色單碼每箱件數須為大於 0 的整數。');
     if(source.corrections!==undefined&&(!Array.isArray(source.corrections)||source.corrections.some((c:any)=>!c||!['itemNo','unitPriceUSD','description'].includes(c.field)||['id','date','itemId','originalValue','correctedValue','reason'].some(k=>typeof c[k]!=='string'))))throw new Error('訂單更正紀錄格式不符。');

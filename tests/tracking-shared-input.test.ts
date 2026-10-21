@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {emptyWorkspace,loadWorkspace,type TrackingRecord} from '../src/utils/workspace';
+import {updateTrackingInput,sharedProgressFields} from '../src/utils/trackingProgress';
+import {internalValues,customerRows,buildCustomerBulk} from '../src/utils/trackingDocuments';
+import {syncTracking} from '../src/utils/trackingAutomation';
+const r={id:'style-one',poNumber:'26OFTEST',scNumber:'CSTEST',itemNo:'TEST-S27',quantity:100,unit:'PCS',season:'SS27',brand:'ABC',company:'CISALFA',supplier:'RJ',factoryDate:'2026-11-01',customerDate:'2026-12-01',status:'尚未出貨',source:'test',tp:'',labDip:'',fitSample:'',pps:'',fabricTestDate:'',fabricTestStatus:'',cutting:'',sewing:'',shippingSample:'',inspection:'',packing:'',remarks:''} as TrackingRecord;
+let w=emptyWorkspace();w.tracking[r.id+':colour:test']={bulk:{fitSampleDate:'2026-09-01',contact:'Keep client contact'}};
+w=updateTrackingInput(w,r,'bulk','fitSampleDate','2026-10-20');w=updateTrackingInput(w,{...r,...w.tracking[r.id]},'bulk','fitSampleStatus','APPROVED');
+let record=syncTracking({...r,...w.tracking[r.id]},w);assert.equal(internalValues(record).AB,'2026-10-20');assert.equal(customerRows([record])[0].bulk?.fitSampleDate,'2026-10-20');assert.equal(w.tracking[r.id+':colour:test'].bulk?.fitSampleDate,'2026-10-20');assert.equal(w.tracking[r.id+':colour:test'].bulk?.contact,'Keep client contact');
+const customer=buildCustomerBulk([record]).worksheets[0];assert.equal(customer.getCell('Z6').value instanceof Date,true);assert.equal(customer.getCell('AA6').value,'APPROVED');
+w=updateTrackingInput(w,record,'internalFields','W','2026-10-21');record=syncTracking({...r,...w.tracking[r.id]},w);assert.equal(record.bulk?.tpDate,'2026-10-21');assert.equal(record.bulk?.tpStatus,undefined,'Entering a date alone must not invent approval');
+w=updateTrackingInput(w,record,'internalFields','AD','2026-10-22');record=syncTracking({...r,...w.tracking[r.id]},w);assert.equal(record.bulk?.ppsStatus,'APPROVED');assert.equal(record.bulk?.ppsApprovalDate,'2026-10-22');assert.equal(record.bulk?.ppsDate,undefined,'Approval date must not replace sending date');
+w=updateTrackingInput(w,record,'bulk','ppsDate','2026-10-18');record=syncTracking({...r,...w.tracking[r.id]},w);assert.equal(internalValues(record).AC,'2026-10-18');assert.equal(internalValues(record).AD,'2026-10-22');
+w=updateTrackingInput(w,record,'bulk','ppsStatus','WAITING CISALFA');record=syncTracking({...r,...w.tracking[r.id]},w);assert.equal(sharedProgressFields(record).AD,'');assert.equal(internalValues(record).AC,'2026-10-18');
+w=updateTrackingInput(w,record,'bulk','fitSampleDate','');record=syncTracking({...r,...w.tracking[r.id]},w);assert.equal(internalValues(record).AB,'');assert.equal(record.bulk?.fitSampleDate,'');assert.equal(loadWorkspace(JSON.stringify(w),null).tracking[r.id].bulk?.fitSampleDate,'');
+console.log('PASS: one shared progress input feeds internal and customer exports, preserves sending/approval dates, propagates colour updates and does not invent approval.');

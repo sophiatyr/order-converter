@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export function frontendFiles(root) {
   const names = ['index.html','release.json'];
+  if(fs.existsSync(path.join(root,'csq-factory-packing-standard.xlsx')))names.push('csq-factory-packing-standard.xlsx');
   function walk(dir) {
     if (!fs.existsSync(path.join(root,dir))) return;
     for (const e of fs.readdirSync(path.join(root,dir),{withFileTypes:true})) {

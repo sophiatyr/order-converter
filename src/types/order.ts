@@ -58,6 +58,7 @@ export interface BankInfo {
 
 export interface FactoryTermsSettings {payment?:string;trade?:string;place?:string;reference?:string}
 export interface OrderData {
+  importedAt?:string;
   factoryTermsSettings?:FactoryTermsSettings;
   factoryTradeTerms?:string;
   corrections?: {id:string;date:string;itemId:string;field:'itemNo'|'unitPriceUSD'|'description';originalValue:string;correctedValue:string;reason:string}[];
