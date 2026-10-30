@@ -1,13 +1,14 @@
 import {useLayoutEffect,useRef,type ReactNode} from 'react';
 
-const operation=/新增|建立|修改|作廢|匯入|上傳|刪除|移除|套用|更新進度|儲存|保存|確認|匯出|下載|備份|帶入|更正|送出|清除|產生|出貨測試/;
-export function ReadOnlyView({enabled,children}:{enabled:boolean;children:ReactNode}){
+const operation=/編輯|回讀|還原|載入出貨|重設測試|新增|建立|修改|作廢|匯入|上傳|刪除|移除|套用|更新進度|儲存|保存|確認|匯出|下載|備份|帶入|更正|送出|清除|產生|出貨測試/;
+export function ReadOnlyView({enabled,children,allowExports=false,message}:{enabled:boolean;children:ReactNode;allowExports?:boolean;message?:string}){
  const root=useRef<HTMLDivElement>(null);
  useLayoutEffect(()=>{
   if(!enabled||!root.current)return;
   const original=new Map<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement|HTMLButtonElement,{disabled:boolean;readOnly?:boolean}>();
   const lock=()=>{
    for(const el of root.current!.querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement|HTMLButtonElement>('input,select,textarea,button')){
+    if(allowExports&&el instanceof HTMLButtonElement&&/匯出|下載|預覽|備份/.test(el.textContent||'')&&!/匯入|回讀|修改|還原/.test(el.textContent||''))continue;
     const label=(el.getAttribute('aria-label')||'')+' '+(el.getAttribute('placeholder')||'');
     if(el instanceof HTMLButtonElement&&!operation.test(el.textContent||''))continue;
     if(!(el instanceof HTMLButtonElement)&&(/搜尋|搜索|查詢|篩選/.test(label)||el.closest('.desk-search')))continue;
@@ -19,6 +20,6 @@ export function ReadOnlyView({enabled,children}:{enabled:boolean;children:ReactN
   };
   lock();const observer=new MutationObserver(lock);observer.observe(root.current,{subtree:true,childList:true,attributes:true,attributeFilter:['disabled','readonly']});
   return ()=>{observer.disconnect();for(const [el,state] of original){el.disabled=state.disabled;if('readOnly' in el&&state.readOnly!==undefined)el.readOnly=state.readOnly;}};
- },[enabled]);
- return <div ref={root}>{enabled&&<p className="desk-hint" role="status">瀏覽者模式：可查看、搜尋及篩選資料，不能新增、修改、匯入、匯出或執行作業。</p>}{children}</div>;
+ },[enabled,allowExports]);
+ return <div ref={root}>{enabled&&<p className="desk-hint" role="status">{message||'瀏覽者模式：可查看、搜尋及篩選資料，不能新增、修改、匯入、匯出或執行作業。'}</p>}{children}</div>;
 }

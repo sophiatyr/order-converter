@@ -1,3 +1,5 @@
+import {canEditModule,assertRecordPermission,effectiveRole} from '../server/workspacePermissions.mjs';
+import {RoleContext} from './components/RoleContext';
 import {OrderOverview,defaultOrderOverviewFilters} from './components/OrderOverview';
 import {removeOrder,restoreRemovedOrder} from './utils/orderRemoval';
 import {saveFactoryText} from './utils/factoryText';
@@ -35,25 +37,34 @@ import {NasGate,type SharedSession} from './components/NasGate';
 const SAVED_KEY = 'SK_SAVED_UPLOADED_ORDER';
 const navigation=[...modules,['system','系統管理'] as const];
 type Page = 'overview' | 'review' | 'documents';
+function assertWorkspacePermission(before:Workspace,after:Workspace,role:string|undefined){
+ if(!role)return;
+ for(const kind of ['orders','shipments','developments','productMappings','tracking','productNotes','classificationOptions','removedOrders'] as const){
+  const map=(v:unknown)=>Array.isArray(v)?Object.fromEntries(v.map(r=>[kind==='orders'?r.poNumber:r.id,r])):(v||{}) as Record<string,unknown>;
+  const a=map(before[kind]),b=map(after[kind]);for(const id of new Set([...Object.keys(a),...Object.keys(b)]))assertRecordPermission(role,kind,a[id]??null,b[id]??null);
+ }
+}
 export default function Root(){return <NasGate>{(shared,localSystem,localRole)=><App key={shared?.user.id||'local'} shared={shared} localSystem={localSystem} localRole={localRole}/>}</NasGate>;}
 function App({shared,localSystem,localRole}:{shared?:SharedSession;localSystem?:React.ReactNode;localRole?:SharedSession['user']['role']}) {
-  const readOnly=shared?.user.role==='viewer'||localRole==='viewer';
+  const role=effectiveRole(shared?.user.role||localRole);
+  const canEditOrders=canEditModule(role,'orders');
   const [order, setOrder] = useState<OrderData | null>(() => {
     if(shared)return shared.workspace.orders[0]||null;
     try { const saved = JSON.parse(localStorage.getItem(SAVED_KEY) || 'null'); return saved?.poNumber && Array.isArray(saved.items) ? normalizeCsqOrder(saved) : null; } catch { return null; }
   });
   const [page, setPage] = useState<Page>('overview');
   const [overviewFilters,setOverviewFilters]=useState(defaultOrderOverviewFilters);
-  const [module, setModule] = useState<ModuleId|'system'>(shared?.preview?'system':'orders');
+  const [module, setModule] = useState<ModuleId|'system'>(shared?.preview?'system':role==='shipping'?'shipping':'orders');
+  const readOnly=!canEditModule(role,module);
   const [workspace,setWorkspace]=useState<Workspace>(()=>{if(shared)return shared.workspace;try{const w=loadWorkspace(localStorage.getItem(WORKSPACE_KEY),order),mapping=localStorage.getItem('SK_PRODUCT_MAPPING_DB_V2');return mapping?{...w,productMappings:JSON.parse(mapping)}:w;}catch{return emptyWorkspace();}});
   const [workspaceRefs,setWorkspaceRefs]=useState<ReferenceSnapshot|null>(null);
   const [workspaceRefError,setWorkspaceRefError]=useState('');
   const localReady=useRef(false);
-  const saveWorkspace=(next:Workspace)=>{if(readOnly)return;next=normalizeWorkspace(next);if(shared){setWorkspace(next);shared.save(next);return;}if(!localReady.current){setNotice('本機資料正在載入，請稍候。');return;}setWorkspace(next);void writeLocalWorkspace(next).then(()=>{localStorage.removeItem(WORKSPACE_KEY);}).catch(()=>setNotice('本機資料庫未能保存，修改尚未儲存。請檢查瀏覽器空間並下載完整備份。'));};
-  const restoreWorkspace=(next:Workspace)=>{if(readOnly)return;next=normalizeWorkspace(next);if(shared){if(shared.user.role!=='admin'){setNotice('完整資料移轉由管理員操作。');return;}setWorkspace(next);shared.restore(next);return;}try{const current=next.orders.find(o=>o.poNumber===order?.poNumber)||next.orders[0]||null;if(current)localStorage.setItem(SAVED_KEY,JSON.stringify(current));void writeLocalWorkspace(next).then(()=>{localStorage.removeItem(WORKSPACE_KEY);setOrder(current);setWorkspace(next);setNotice('工作站備份已合併。');}).catch(()=>setNotice('本機資料庫未能保存備份。'));}catch{setNotice('本機儲存空間不足，備份未完成保存。');}};
+  const saveWorkspace=(next:Workspace)=>{if(readOnly)return;next=normalizeWorkspace(next);try{assertWorkspacePermission(workspace,next,role);}catch(e){setNotice(e instanceof Error?e.message:String(e));return;}if(shared){setWorkspace(next);shared.save(next);return;}if(!localReady.current){setNotice('本機資料正在載入，請稍候。');return;}setWorkspace(next);void writeLocalWorkspace(next).then(()=>{localStorage.removeItem(WORKSPACE_KEY);}).catch(()=>setNotice('本機資料庫未能保存，修改尚未儲存。請檢查瀏覽器空間並下載完整備份。'));};
+  const restoreWorkspace=(next:Workspace)=>{if(role&&role!=='admin'){setNotice('完整資料移轉由管理員操作。');return;}next=normalizeWorkspace(next);if(shared){if(shared.user.role!=='admin'){setNotice('完整資料移轉由管理員操作。');return;}setWorkspace(next);shared.restore(next);return;}try{const current=next.orders.find(o=>o.poNumber===order?.poNumber)||next.orders[0]||null;if(current)localStorage.setItem(SAVED_KEY,JSON.stringify(current));void writeLocalWorkspace(next).then(()=>{localStorage.removeItem(WORKSPACE_KEY);setOrder(current);setWorkspace(next);setNotice('工作站備份已合併。');}).catch(()=>setNotice('本機資料庫未能保存備份。'));}catch{setNotice('本機儲存空間不足，備份未完成保存。');}};
   const refreshWorkspaceRefs=async()=>{try{const response=await fetch(`${import.meta.env.BASE_URL}csq-workspace-references.json`,{cache:'no-store'});if(!response.ok)throw new Error('參考資料尚未建立。請雙擊「更新CSQ參考資料.bat」。');const data=await response.json();if(!Array.isArray(data.tracking)||!Array.isArray(data.files))throw new Error('參考資料格式不符。');setWorkspaceRefs(data);setWorkspaceRefError('');}catch(e){setWorkspaceRefError(e instanceof Error?e.message:'參考資料無法讀取');}};
   useEffect(()=>{void refreshWorkspaceRefs();},[]);
-  useEffect(()=>{if(shared)return;let active=true;void Promise.all([readLocalWorkspace(),loadCompositionReferences()]).then(async ([saved,compositions])=>{if(!active)return;let next=saved?loadWorkspace(JSON.stringify(saved),null):workspace;let repaired=false;next={...next,orders:next.orders.map(o=>{const value=repairMedicoComposition(o,compositions);if(value!==o)repaired=true;return value;})};if((!saved||repaired)&&!readOnly)await writeLocalWorkspace(next);if(!active)return;setWorkspace(next);setOrder(previous=>previous?(next.orders.find(o=>o.poNumber===previous.poNumber)||(next.removedOrders?.[previous.poNumber]?next.orders[0]||null:repairMedicoComposition(previous,compositions))):previous);localReady.current=true;}).catch(()=>setNotice('本機資料庫無法開啟，原有資料保留。請檢查瀏覽器設定。'));return()=>{active=false;};},[]);
+  useEffect(()=>{if(shared)return;let active=true;void Promise.all([readLocalWorkspace(),loadCompositionReferences()]).then(async ([saved,compositions])=>{if(!active)return;let next=saved?loadWorkspace(JSON.stringify(saved),null):workspace;let repaired=false;next={...next,orders:next.orders.map(o=>{const value=repairMedicoComposition(o,compositions);if(value!==o)repaired=true;return value;})};if((!saved||repaired)&&canEditOrders)await writeLocalWorkspace(next);if(!active)return;setWorkspace(next);setOrder(previous=>previous?(next.orders.find(o=>o.poNumber===previous.poNumber)||(next.removedOrders?.[previous.poNumber]?next.orders[0]||null:repairMedicoComposition(previous,compositions))):previous);localReady.current=true;}).catch(()=>setNotice('本機資料庫無法開啟，原有資料保留。請檢查瀏覽器設定。'));return()=>{active=false;};},[]);
   useEffect(()=>{if(shared){setWorkspace(shared.workspace);setOrder(previous=>shared.workspace.orders.find(o=>o.poNumber===previous?.poNumber)||shared.workspace.orders[0]||null);}},[shared?.workspace]);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [databaseOpen, setDatabaseOpen] = useState(false);
@@ -82,7 +93,7 @@ function App({shared,localSystem,localRole}:{shared?:SharedSession;localSystem?:
   };
   const [quoteChoices,setQuoteChoices] = useState<Record<string,string>>({});
   useEffect(()=>{void loadErpProducts().then(setErpSnapshot).catch(()=>{});},[]);
-  useEffect(()=>{if((module==='products'||module==='orders'&&page==='documents')&&!readOnly)void refreshMaterials();},[module,page,order?.poNumber]);
+  useEffect(()=>{if((module==='products'||module==='orders'&&page==='documents')&&canEditOrders)void refreshMaterials();},[module,page,order?.poNumber]);
   useEffect(()=>{setQuoteChoices({});},[order?.poNumber]);
   const [factorySelection, setFactorySelection] = useState('');
   const [references, setReferences] = useState<CsqReference[]>([]);
@@ -133,7 +144,7 @@ function App({shared,localSystem,localRole}:{shared?:SharedSession;localSystem?:
     catch { setNotice('本機儲存空間不足，這次修改尚未保存。請先下載訂單備份。'); }
   };
   useEffect(()=>{
-    if(readOnly||module!=='orders'||page!=='documents'||!order||!erpSnapshot||!localReady.current&&!shared||Object.keys(quoteChoices).length||!order.items.some(i=>!i.factoryProduct))return;
+    if(!canEditOrders||module!=='orders'||page!=='documents'||!order||!erpSnapshot||!localReady.current&&!shared||Object.keys(quoteChoices).length||!order.items.some(i=>!i.factoryProduct))return;
     const result=applyErpProducts(order,withProductFactoryQuotes(erpSnapshot,workspace));
     const before=order.items.filter(i=>i.factoryProduct).length;
     if(result.matched<=before)return;
@@ -149,7 +160,7 @@ function App({shared,localSystem,localRole}:{shared?:SharedSession;localSystem?:
     try{const next=restoreRemovedOrder(workspace,po);saveWorkspace(next);const current=next.orders.find(o=>o.poNumber===po)!;setOrder(current);if(!shared)localStorage.setItem(SAVED_KEY,JSON.stringify(current));setNotice(`已還原 PO ${po}。`);}catch(e){setNotice(e instanceof Error?e.message:'還原未完成');}
   };
   const issues = order ? csqIssues(order) : [];
-  useEffect(()=>{if(!order||(!shared&&!localReady.current))return;const next=enrichOrderComposition(order,workspace,erpSnapshot);if(next!==order){if(readOnly)setOrder(next);else updateOrder(next);}else if(!readOnly&&erpSnapshot){const synced=syncOrderProducts(workspace,order,erpSnapshot);if(synced!==workspace)saveWorkspace(synced);}},[order,workspace.productNotes,workspace.productMappings,erpSnapshot,workspace.orders]);
+  useEffect(()=>{if(!order||(!shared&&!localReady.current))return;const next=enrichOrderComposition(order,workspace,erpSnapshot);if(next!==order){if(!canEditOrders)setOrder(next);else updateOrder(next);}else if(canEditOrders&&erpSnapshot){const synced=syncOrderProducts(workspace,order,erpSnapshot);if(synced!==workspace)saveWorkspace(synced);}},[order,workspace.productNotes,workspace.productMappings,erpSnapshot,workspace.orders]);
   const factoryGroups=order?erpFactoryOrders(order):[];
   const factoryOrder=factoryGroups.find(g=>g.id===factorySelection)?.order||factoryGroups[0]?.order||(order?.erpFactoryApplied?null:order);
   const previewWorkbook=useMemo(()=>{if(!documentTemplates||!order||page!=='documents')return null;const value=preview==='factory'||preview==='quantity'&&factoryGroups.length>0?factoryOrder:order;if(!value)return {error:'尚無可預覽的工廠報價，請先確認 ERP 工廠報價。'};try{return {...buildReferenceDocument(documentTemplates,preview,value,references,erpSnapshot,workspace),error:''};}catch(e){return {error:e instanceof Error?e.message:'文件預覽失敗'};}},[documentTemplates,order,page,preview,factoryOrder,references,erpSnapshot,workspace.productNotes]);
@@ -183,7 +194,7 @@ function App({shared,localSystem,localRole}:{shared?:SharedSession;localSystem?:
     const filename = `${order.poNumber}_CSQ工作站.json`;
     const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); showDownload({ url, filename });
   };
-  return <div className="csq-workspace min-h-screen">
+  return <RoleContext.Provider value={role}><div className="csq-workspace min-h-screen">
     <aside className="csq-sidebar">
       <div className="csq-brand csq-brand-cisalfa"><img className="csq-cisalfa-wordmark" src={`${import.meta.env.BASE_URL}branding/cisalfa-wordmark.svg`} alt="Cisalfa Sport"/><div className="csq-account-signature"><strong>CSQ<span>.</span></strong><span>ACCOUNT<br/>WORKSPACE</span></div></div>
       <div className="csq-sidebar-label">工作站功能</div>
@@ -198,7 +209,7 @@ function App({shared,localSystem,localRole}:{shared?:SharedSession;localSystem?:
         {notice && <p className="csq-alert" role="alert"><AlertCircle size={16} />{notice}</p>}
         {downloadLink && <div className="csq-download-ready" role="status"><Check size={16} /><span>文件已產生：{downloadLink.filename}</span><a href={downloadLink.url} download={downloadLink.filename}>下載檔案</a></div>}
         {shared?.blocked&&module!=='system'&&<p className="csq-alert" role="alert">修改尚未儲存。請到系統管理保留未儲存資料，再重新載入核對。<button className="desk-button" onClick={()=>setModule('system')}>開啟系統管理</button></p>}
-        <ReadOnlyView key={`${module}:${module==='orders'?page:''}`} enabled={readOnly&&module!=='system'}><fieldset disabled={!!shared?.blocked&&module!=='system'} style={{border:0,padding:0,margin:0,minWidth:0}}>
+        <ReadOnlyView key={`${module}:${module==='orders'?page:''}`} enabled={readOnly&&module!=='system'} allowExports={role!=='viewer'} message={role==='shipping'?'船務權限：此頁僅供瀏覽；請到出貨作業修改。':role==='assistant'?'業務助理權限：出貨作業僅供瀏覽，無法修改。':undefined}><fieldset disabled={!!shared?.blocked&&module!=='system'} style={{border:0,padding:0,margin:0,minWidth:0}}>
         {module==='system'?<>
           <div className="csq-page-heading"><div><span className="csq-eyebrow">CSQ / SYSTEM</span><h1>系統管理</h1><p>{shared?'管理同事帳號、資料庫備份與個人登入設定。':'管理本機測試帳號及個人登入設定，不影響 NAS 正式帳號。'}</p></div></div>
           {shared?shared.systemPanel:localSystem||<section className="csq-export-card"><h2>本機工作站</h2><p>這是離線作業版。帳戶管理請使用本機共用版測試，測試帳號不會影響 NAS 正式帳號。完整備份與資料來源仍在數據管理維護。</p><button className="desk-button" onClick={()=>setModule('data')}>前往數據管理</button></section>}
@@ -235,5 +246,5 @@ function App({shared,localSystem,localRole}:{shared?:SharedSession;localSystem?:
     <PdfUploadModal isOpen={uploadOpen&&!shared?.blocked&&!readOnly} onClose={() => setUploadOpen(false)} onOrderLoaded={value => { updateOrder(value); setModule('orders'); setPage('review'); }} />
     <ProductDatabaseModal sharedProducts={shared?(workspace.productMappings||[]):undefined} onProductsChange={products=>saveWorkspace({...workspace,productMappings:products})} isOpen={databaseOpen&&!shared?.blocked&&!readOnly} onClose={() => setDatabaseOpen(false)} onApplyToOrder={applyDatabase} />
     <StandaloneInfoModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
-  </div>;
+  </div></RoleContext.Provider>;
 }

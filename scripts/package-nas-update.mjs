@@ -15,7 +15,7 @@ if(!/^\d{4}\.\d{2}\.\d{2}\.\d+$/.test(release.version))throw Error('缺少有效
 file(path.join(buildRoot,'release.json'),'dist/release.json');
 for(const name of ['assets','vendor','branding'])tree(path.join(buildRoot,name),'dist/'+name);
 for(const name of ['csq-internal-tracking-template.xlsx','csq-internal-tracking-template.json','csq-factory-packing-standard.xlsx','manifest.json','sw.js','icon-192.png','icon-512.png','apple-touch-icon.png'])if(fs.existsSync(path.join(buildRoot,name)))file(path.join(buildRoot,name),'dist/'+name);
-for(const name of ['nasServer.mjs','nasDatabase.mjs','workspace-validation.mjs'])file('server/'+name,'server/'+name);
+for(const name of ['nasServer.mjs','nasDatabase.mjs','workspace-validation.mjs','workspacePermissions.mjs'])file('server/'+name,'server/'+name);
 for(const name of ['package.json','package-lock.json'])file(name,name);
 file('deploy/nas/Dockerfile','Dockerfile');
 const date=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());

@@ -54,7 +54,7 @@ const stageColumns=progressColumns;
 export function applyTrackingStage(w:Workspace,rows:TrackingRecord[],phase:string,date:string,status:string){
  const tracking={...w.tracking};
  for(const r of rows){const old=tracking[r.id]||{},bulk={...r.bulk,...old.bulk,[phase+'Date']:date,[phase+'Status']:status},internalFields={...old.internalFields};
-  delete bulk.shipmentDate;delete bulk.shipmentStatus;
+  for(const key of Object.keys(bulk).filter(k=>k.startsWith('shipment')))if(!Object.hasOwn(old.bulk||{},key))delete bulk[key];
   if(stageColumns[phase]&&date)internalFields[stageColumns[phase]]=date;
   if(phase==='pps'){if(status==='APPROVED'){internalFields.AD=date;bulk.ppsApprovalDate=date;bulk.ppsDate=old.bulk?.ppsDate||r.bulk?.ppsDate||r.internalFields?.AC||'';}else if(date)internalFields.AC=date;}
   const legacy:Record<string,string>={};if(phase==='pps'&&status==='APPROVED')legacy.pps=date;

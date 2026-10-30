@@ -63,7 +63,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const target = '\\\\192.168.1.6\\docker\\Cisalfa';
   const backup = path.resolve(`work/nas-release-before-${release.version}-${new Date().toISOString().replace(/[:.]/g,'-')}`);
   const report = await deployFrontend({source,target:path.join(target,'dist'),backup,base:'http://192.168.1.6:8888'});
-  const serverFiles=['nasServer.mjs','nasDatabase.mjs','workspace-validation.mjs'];
+  const serverFiles=['nasServer.mjs','nasDatabase.mjs','workspace-validation.mjs','workspacePermissions.mjs'];
   const serverHash=createHash('sha256');for(const name of serverFiles)serverHash.update(name).update(fs.readFileSync(path.join('server',name)));report.expectedServerDigest=serverHash.digest('hex');
   const health=await(await fetch('http://192.168.1.6:8888/api/health',{signal:AbortSignal.timeout(15000)})).json();
   report.runningServerVerified=health.ok===true&&health.serverDigest===report.expectedServerDigest;
