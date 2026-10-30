@@ -10,3 +10,5 @@ const legacyUnit={...a,unit:'PO 單位',internalFields:{...a.internalFields,Q:'P
 assert.equal(internalTemplatePayload([legacyUnit],[legacyUnit],emptyWorkspace()).rows[0].values[16],'PCS','Legacy placeholder units must export as PCS');
 assert.equal(internalTemplatePayload([{...a,unit:'PAIRS'}],[{...a,unit:'PAIRS'}],emptyWorkspace()).rows[0].values[16],'PAIRS','Explicit pair quantities retain their unit');
 console.log('PASS: internal original-template payload uses full POs, typed dates and amounts, exact aliases, PCS units and validated data.');
+
+const blankSource={...a,internalFields:{...a.internalFields,A:'',B:'',O:'',P:''}};const restored=internalTemplatePayload([blankSource],[blankSource],emptyWorkspace()).rows[0];assert.equal(restored.values[0],a.scNumber);assert.equal(restored.values[1],a.poNumber);assert.equal(restored.values[14],a.itemNo);assert.equal(restored.values[15],a.quantity);

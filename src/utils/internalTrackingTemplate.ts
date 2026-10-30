@@ -21,13 +21,17 @@ export function internalTemplatePayload(selected:TrackingRecord[],directory:Trac
  const rows=sortTrackingRows(directory.filter(r=>r.color===undefined&&orders.has(JSON.stringify([r.scNumber,r.poNumber]))),workspace);
  if(!rows.length||rows.length>3000)throw Error('請選擇 1 至 3000 筆內部追蹤明細。');
  return {rows:rows.map(r=>{
-  const fields=internalValues(r),order=workspace.orders.find(o=>o.poNumber===r.poNumber&&o.piNumber===r.scNumber),rate=order?.rmbPerUsd||Number(fields._rmbPerUsd)||null;
+  const fields:Record<string,string>={...internalValues(r),A:r.scNumber,B:r.poNumber,O:r.itemNo,P:String(r.quantity)},order=workspace.orders.find(o=>o.poNumber===r.poNumber&&o.piNumber===r.scNumber),rate=order?.rmbPerUsd||Number(fields._rmbPerUsd)||null;
   return {id:r.id,sc:r.scNumber,po:r.poNumber,style:r.itemNo,aliases:verifiedTrackingAliases(r.poNumber,r.itemNo),factory:fields.J||r.supplier,currency:fields._costCurrency||'',rate,scopes:Object.fromEntries(['H','L','M','N'].map(c=>[c,fields['_scope'+c]||`${r.scNumber}|${r.poNumber}|${c==='H'||c==='N'?'order':fields.J||r.supplier}`])),values:Array.from({length:46},(_,c)=>value(columnKey(c),fields[columnKey(c)]||''))};})};
 }
+export async function createInternalTrackingTemplate(selected:TrackingRecord[],directory:TrackingRecord[],workspace:Workspace):Promise<Uint8Array>{
+ const [source,meta]=await Promise.all([fetch(import.meta.env.BASE_URL+'csq-internal-tracking-template.xlsx',{cache:'no-store'}),fetch(import.meta.env.BASE_URL+'csq-internal-tracking-template.json',{cache:'no-store'})]);
+ if(!source.ok||!meta.ok)throw Error('內部追蹤原表範本尚未更新，請更新工作站程式。');
+ const {buildPortableInternalTracking}=await import('./internalTrackingPortable');
+ const bytes=await buildPortableInternalTracking(await source.arrayBuffer(),await meta.json(),internalTemplatePayload(selected,directory,workspace));
+ return bytes;
+}
 export async function exportInternalTrackingTemplate(selected:TrackingRecord[],directory:TrackingRecord[],workspace:Workspace,week:string):Promise<GeneratedDownload>{
- const health=await fetch('/api/local-health',{cache:'no-store'});
- if(!health.ok||(await health.json()).app!=='order-converter-local')throw Error('內部原表需在本機 8888 透過 Excel 匯出，才能保留原有格式、合併欄位及公式。');
- const response=await fetch('/api/local-internal-tracking',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(internalTemplatePayload(selected,directory,workspace))});
- if(!response.ok){const result=await response.json().catch(()=>({}));throw Error(result.error||'內部原表匯出失敗。');}
- const url=URL.createObjectURL(await response.blob()),filename=`訂單進度_${week}.xlsx`,anchor=document.createElement('a');anchor.href=url;anchor.download=filename;anchor.click();return {url,filename};
+ const bytes=await createInternalTrackingTemplate(selected,directory,workspace);
+ const url=URL.createObjectURL(new Blob([new Uint8Array(bytes)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})),filename=`訂單進度_${week}.xlsx`,anchor=document.createElement('a');anchor.href=url;anchor.download=filename;anchor.click();return {url,filename};
 }

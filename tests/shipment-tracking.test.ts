@@ -7,16 +7,16 @@ const refs=JSON.parse(fs.readFileSync('public/csq-workspace-references.json','ut
 const rows=trackingRows(emptyWorkspace(),refs).filter(r=>r.season==='SS27');
 assert.deepEqual(template.headers,shipmentTrackingHeaders);
 const book=buildShipmentTracking(rows,emptyWorkspace(),template,{date:'2026-10-12',referenceOrders:refs.orders}),sheet=book.getWorksheet('CSQ')!;
-assert.equal(sheet.rowCount,287);assert.equal(book.worksheets.length,1);
+assert.equal(sheet.rowCount,288);assert.equal(book.worksheets.filter(s=>s.state==='visible').length,1);
 assert.equal(sheet.getCell('A1').value,"SPORTS KITE INTERNATIONAL CO., LTD.");
-assert.equal(sheet.getCell('J4').value instanceof Date,true);assert.equal(sheet.getCell('J8').value,'');
+assert.equal(sheet.getCell('I4').value instanceof Date,true);assert.equal(sheet.getCell('H8').value,'');
 assert.equal(sheet.getCell('A8').value instanceof Date,true,'Order date comes from original PO, never from a standalone day number');
 assert.equal(sheet.getCell('A6').value,'SHIP TO :GENOA, ITALY');
 assert.equal(sheet.getCell('E8').numFmt,'#,##0');assert.equal(sheet.getCell('D8').font.name,'Calibri');
-assert.equal(sheet.pageSetup.printArea,'A1:N287');
+assert.equal(sheet.pageSetup.printArea,'A1:L288');
 const roundtrip=new ExcelJS.Workbook();await roundtrip.xlsx.load(await book.xlsx.writeBuffer());
 let total=0;const pos=new Set();for(let n=8;n<=287;n++){total+=Number(roundtrip.worksheets[0].getCell(n,5).value);pos.add(roundtrip.worksheets[0].getCell(n,3).value);}
-assert.equal(total,644397);assert.equal(pos.size,93);
+assert.equal(total,rows.reduce((n,r)=>n+r.quantity,0));assert.equal(pos.size,93);
 const first=rows[0],shipment:Shipment={id:'shipment',confirmed:true,poNumber:first.poNumber,scNumber:first.scNumber,customer:'CISALFA',address:'',invoiceNo:'INV1',date:'2026-10-12',vessel:'VESSEL',container:'BOX',fromPort:'Xiamen',toPort:'Genoa',remarks:'',lines:[{id:'one',itemNo:first.itemNo,description:'TEST',color:'001 WHITE',unit:'PCS',planned:first.quantity,sizes:{S:500},unitPriceUSD:999999,supplier:'RJ',cartons:2,netWeight:8,grossWeight:10,cbm:.2},{id:'two',itemNo:first.itemNo,description:'TEST',color:'050 BLACK',unit:'PCS',planned:first.quantity,sizes:{S:400},unitPriceUSD:999999,supplier:'RJ',cartons:3,netWeight:12,grossWeight:15,cbm:.3}]};
 const w={...emptyWorkspace(),shipments:[shipment]},record={...first,bulk:{...first.bulk,shipmentFm:'FM VALUE',shipmentLc:'LC123',shipmentEstimatedDate:'2026-10-20'}};
 const actual=shipmentTrackingData([record],w)[0].values;assert.equal(actual[9],5);assert.equal(actual[10],25);assert.equal(actual[11],.5);assert.equal(actual[8],'2026-10-20');assert.equal(actual[13],'LC123');assert.equal(actual[6],'FM VALUE');assert.equal(actual[7],'PARTIALLY SHIPPED (900/3900)');
@@ -24,6 +24,12 @@ const draft=shipmentTrackingData([record],{...w,shipments:[{...shipment,confirme
 assert.ok(!JSON.stringify(actual).includes('999999'),'Customer document must not expose prices or internal financial columns');
 const socks=[{...first,id:'sockS',itemNo:'RCL006-S',quantity:10},{...first,id:'sockM',itemNo:'RCL006-M',quantity:20}];
 const sockShip={...shipment,lines:[{...shipment.lines[0],itemNo:'RCL006',sizes:{S:10,M:20},cartons:2,grossWeight:15,cbm:.2}]};
-const sockBook=buildShipmentTracking(socks,{...w,shipments:[sockShip]},template);assert.equal(sockBook.worksheets[0].getCell('J8').value,2);assert.equal(sockBook.worksheets[0].getCell('J9').master.address,'J8');
+const sockBook=buildShipmentTracking(socks,{...w,shipments:[sockShip]},template);assert.equal(sockBook.worksheets[0].getCell('H8').value,2);assert.equal(sockBook.worksheets[0].getCell('H9').master.address,'H8');
 await buildShipmentTracking([record],w,template,{date:'2026-10-12',referenceOrders:refs.orders}).xlsx.writeFile('work/shipment-tracking-check.xlsx');
-console.log('Customer shipment template: exact 14 headers, 93 PO / 644397 pieces, confirmed-only carton/weight/CBM aggregation, shared sock totals, editable LC and no financial leakage passed.');
+console.log('Customer shipment template: 12 visible columns, source PO counts and quantities, confirmed-only carton/weight/CBM aggregation, shared sock totals, editable LC and no financial leakage passed.');
+
+assert.equal(sheet.columnCount,12);assert.equal(sheet.getCell('G8').value,'','Estimated date defaults blank');assert.equal(sheet.getCell('G7').value,shipmentTrackingHeaders[8]);assert.equal(book.getWorksheet('_CSQ')!.state,'veryHidden');
+
+
+for(let c=1;c<=12;c++)assert.equal(sheet.getColumn(c).width,20.625,'Stored width includes cell padding so Excel displays 20');
+for(let r=8;r<=sheet.rowCount;r++)assert.equal(sheet.getRow(r).height,20,'Shipment tracking detail/total height must be 20');

@@ -5,8 +5,6 @@ import {shipmentQuantity,type Shipment,type ShipmentLine,type Workspace} from '.
 import {packingIssues,cartonCount} from './shipmentPacking';
 import {shippingCompany,shippingInvoiceAmounts,shipmentEstimates} from './shippingWorkflow';
 import {amountToEnglishWords} from './numberToWords';
-import {shipmentTrackingData} from './shipmentTracking';
-import type {TrackingRecord} from './workspace';
 type Scalar=string|number|null;
 type Patch=[string,Scalar];
 export interface NativeShippingSheet {name:string;patches:Patch[];formulas:[string,string][];insertColumns?:{at:number;count:number}[];body?:{start:number;end:number;columns:number;rows:{source:number;values:Scalar[]}[]}}
@@ -119,14 +117,6 @@ export function bookingRecipe(s:Shipment,o:OrderData,kind:'booking'|'ocean'):Nat
  const sheet:NativeShippingSheet={name:'Foglio1',patches:[['A16',shippingCompany.name],['A17','7 F., NO. 522, SEC. 5, ZHONGSHAN N. RD.'],['A18','SHILIN DIST., TAIPEI CITY 111005 TAIWAN'],['A19',shippingCompany.contact],['A20','L/C NR. '+(f.lcNumber||'')],['A22',`BENEFICIARY OF L/C: ${shippingCompany.name}\n${shippingCompany.address}`],['A31','PRO FORMA INVOICE NR. '+s.scNumber],['A28',consignee.join('\n')],['E28',notify[0]||''],['E29',notify[1]||''],['E30',notify.slice(2).join('\n')],['A32','CUSTOMER ORDER NR. '+s.poNumber],['E33',f.deliveryToForwarder||''],['E35',f.etd||''],['A37','PORT OF DEPARTURE: '+s.fromPort]],formulas:[],body:{start:40,end:51,columns:14,rows:[]}};
  for(const e of estimates.filter(e=>e.quantity>0)){const l=s.lines.find(l=>l.id===e.lineId)!;const v=blank(14);Object.assign(v,{0:l.itemNo,2:invoiceLineText(s,o,l).description,5:l.color,6:e.quantity,7:e.cartons,8:e.grossWeight,9:e.cbm,10:s.factoryNotice?.['hsCode:'+l.itemNo]||''});sheet.body!.rows.push({source:40,values:v});}
  const total=40+sheet.body!.rows.length;sheet.patches.push([`A${total}`,'TOTAL']);for(const c of ['G','H','I','J'])sheet.formulas.push([c+total,`=SUM(${c}40:${c}${total-1})`]);return {template:`booking-${port}`,sheets:[sheet]};
-}
-export function shipmentTrackingRecipe(rows:TrackingRecord[],w:Workspace,orders:OrderData[],date:string):NativeShippingRecipe{
- const data=shipmentTrackingData(rows,w,orders);
- if(!data.length)throw Error('目前沒有可匯出的待出貨訂單。');
- const seen=new Set<string>(),sheet:NativeShippingSheet={name:'CSQ',patches:[['A1',shippingCompany.name],['J4',date]],formulas:[],body:{start:8,end:324,columns:16,rows:[]}};
- for(const [i,d]of data.entries()){const values=[...d.values];if(seen.has(d.metricsKey))for(const c of [9,10,11])values[c]='';else if(Number(values[9])>0&&Number(values[11])>0)sheet.formulas.push([`L${i+8}`,`=J${i+8}*${Number(values[11])/Number(values[9])}`]);seen.add(d.metricsKey);sheet.body!.rows.push({source:8,values});}
- const total=8+data.length;sheet.body!.rows.push({source:12,values:['TOTAL']});for(const c of ['E','J','K','L'])sheet.formulas.push([c+total,`=SUM(${c}8:${c}${total-1})`]);
- return {template:'shipment-tracking',sheets:[sheet,{name:'工作表1',patches:[],formulas:[],body:{start:2,end:108,columns:17,rows:[]}}]};
 }
 export async function loadNativeShipping(recipe:NativeShippingRecipe){const health=await fetch('/api/local-health',{cache:'no-store'});if(!health.ok||(await health.json()).app!=='order-converter-local')throw Error('請從本機工作站開啟，使用 Excel 產生客戶指定原表。');const response=await fetch('/api/local-shipping-workbook',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(recipe)});if(!response.ok){const p=await response.json().catch(()=>({}));throw Error(p.error||'原表產生失敗。');}return response.arrayBuffer();}
 export async function exportNativeShipping(recipe:NativeShippingRecipe,filename:string){const bytes=await loadNativeShipping(recipe),url=URL.createObjectURL(new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})),a=document.createElement('a');a.href=url;a.download=filename;a.click();return {url,filename};}

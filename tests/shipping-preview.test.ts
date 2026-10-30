@@ -1,3 +1,4 @@
+import {nativePreviewWorkbook} from '../src/utils/workbookPreviewFile';
 import assert from 'node:assert/strict';
 import * as XLSX from 'xlsx';
 import {shippingPreviewBounds} from '../src/utils/shippingPreview';
@@ -9,3 +10,9 @@ assert.deepEqual(shippingPreviewBounds({'!ref':'A1:IT1000'}),{rows:0,columns:0})
 const bytes=XLSX.write({SheetNames:['Invoice','PackingList'],Sheets:{Invoice:sheet,PackingList:XLSX.utils.aoa_to_sheet([['CARTONS'],[2]])}},{type:'buffer',bookType:'xlsx'}),before=Buffer.from(bytes);const loaded=XLSX.read(bytes,{type:'array'});for(const name of loaded.SheetNames)shippingPreviewBounds(loaded.Sheets[name]);assert.deepEqual(Buffer.from(bytes),before,'Rendering cannot change the file offered for download.');
 assert.equal(loaded.Sheets.Invoice.B3.f,'A3*5');assert.equal(loaded.Sheets.Invoice.B3.v,100);
 console.log('PASS shipping preview: data bounds, multiple sheets, cached formula values and unchanged original download bytes.');
+
+const native=nativePreviewWorkbook({name:'CURRENT BULK',values:[['Customer report'],[],[],[],['SUPPLIER','STYLE','DATE'],['SPORTS KITE','ABC',46318]],formats:['General','General','dd-mmm-yyyy'],merges:['A1:C1'],styles:{A6:{fill:'FFFFCC',color:'156082'}}});
+assert.deepEqual(native.Sheets['CURRENT BULK']['!merges'],[{s:{r:0,c:0},e:{r:0,c:2}}]);
+assert.equal(native.Sheets['CURRENT BULK'].A6.v,'SPORTS KITE');assert.equal(native.Sheets['CURRENT BULK'].A6.s.fontColor,'156082');assert.match(native.Sheets['CURRENT BULK'].C6.w,/\d{2}-[A-Za-z]{3}-\d{4}/);
+assert.equal(native.Sheets['CURRENT BULK'].C6.v,46318,'Native preview formatting cannot change the exported source value');
+console.log('PASS native protected-workbook preview: exact cached values, number formats, merges and colours without altering or decrypting download bytes.');

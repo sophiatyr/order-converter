@@ -1,3 +1,4 @@
+import {nativePreviewWorkbook,type NativeWorkbookPreview,type WorkbookPreviewFile} from './workbookPreviewFile';
 import {buildCustomerBulk} from './trackingDocuments';
 import type {TrackingRecord} from './workspace';
 import type {GeneratedDownload} from './excelExport';
@@ -28,10 +29,21 @@ export function customerTemplatePayload(rows:TrackingRecord[],week:string,direct
  if(preview.rows.length>995)throw Error('客戶原表最多 995 筆，請縮小篩選範圍後匯出。');
  return {rows:preview.rows,week:preview.week};
 }
-export async function exportCustomerBulkTemplate(rows:TrackingRecord[],week:string,directory:TrackingRecord[]=rows):Promise<GeneratedDownload>{
+export async function createCustomerBulkTemplate(rows:TrackingRecord[],week:string,directory:TrackingRecord[]=rows):Promise<Uint8Array>{
  const health=await fetch('/api/local-health',{cache:'no-store'});
  if(!health.ok||(await health.json()).app!=='order-converter-local')throw Error('客戶原表需在本機 8888 透過 Excel 匯出。請在本機工作站開啟相同訂單資料後再匯出。');
  const response=await fetch('/api/local-customer-bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(customerTemplatePayload(rows,week,directory))});
  if(!response.ok){const data=await response.json().catch(()=>({}));throw Error(data.error||'客戶原表匯出失敗，請確認本機 Excel 能正常開啟原檔。');}
- const url=URL.createObjectURL(await response.blob()),filename=`BULK_STATUS_SPORTSKITE_PILOT_${week}.xlsx`,anchor=document.createElement('a');anchor.href=url;anchor.download=filename;anchor.click();return {url,filename};
+ return new Uint8Array(await response.arrayBuffer());
+}
+export async function exportCustomerBulkTemplate(rows:TrackingRecord[],week:string,directory:TrackingRecord[]=rows):Promise<GeneratedDownload>{
+ const bytes=await createCustomerBulkTemplate(rows,week,directory);
+ const url=URL.createObjectURL(new Blob([new Uint8Array(bytes)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})),filename=`BULK_STATUS_SPORTSKITE_PILOT_${week}.xlsx`,anchor=document.createElement('a');anchor.href=url;anchor.download=filename;anchor.click();return {url,filename};
+}
+
+export async function createCustomerBulkPreview(rows:TrackingRecord[],week:string,directory:TrackingRecord[]=rows):Promise<WorkbookPreviewFile>{
+ const response=await fetch('/api/local-customer-bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...customerTemplatePayload(rows,week,directory),preview:true})});
+ const data=await response.json();if(!response.ok)throw Error(data.error||'客戶原表預覽產生失敗');
+ if(typeof data.bytes!=='string'||!data.preview?.values)throw Error('本機預覽服務尚未更新，請重新啟動本機工作站。');
+ return {bytes:Uint8Array.from(atob(data.bytes),(c:string)=>c.charCodeAt(0)),workbook:nativePreviewWorkbook(data.preview as NativeWorkbookPreview)};
 }

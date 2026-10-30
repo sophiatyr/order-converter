@@ -15,7 +15,7 @@ import {modules,trackingRows,newShipment,shipmentIssues,shipmentQuantity,analyti
 import {exportShipment,exportAnalytics,reportBook} from '../utils/workspaceExports';
 import {saveWorkbookToFile} from '../utils/excelExport';
 interface Props {onRefreshErp?:()=>void;erpBusy?:boolean;erpStatus?:string;sharedMode?:boolean;module:ModuleId;workspace:Workspace;references:ReferenceSnapshot|null;erp:ErpSnapshot|null;onChange:(w:Workspace)=>void;onRestore:(w:Workspace)=>void;onOpenOrder:(o:OrderData)=>void;onDatabase:()=>void;onDownload:(file:{url:string;filename:string})=>void;onRefresh:()=>void;referenceError:string}
-const descriptions:Record<string,string>={tracking:'沿用 PO 的品號、數量與交期，維護生產、客戶進度及面料測試。',shipping:'從訂單建立出貨批次，共用實際數量、箱數與重量產生出貨文件。',development:'依品號管理打樣與報價，下單後沿用產品資料。',products:'按品牌與季節查看產品、下單狀態及備註。',data:'季度下單與實際出貨業績，資料保存在這台電腦的瀏覽器。'};
+const descriptions:Record<string,string>={tracking:'沿用 PO 的品號、數量與交期，維護生產、客戶進度及面料測試。',shipping:'總覽已出與待出訂單，安排出貨、裝箱及客戶指定單據。',development:'依品號管理打樣與報價，下單後沿用產品資料。',products:'按品牌與季節查看產品、下單狀態及備註。',data:'季度下單與實際出貨業績，資料保存在這台電腦的瀏覽器。'};
 const tabs:Record<string,string[]>={tracking:['訂單進度','Bulk Status','面料測試'],shipping:['出貨批次','出貨文件','客人 Order Tracking','工廠出貨通知書'],development:['樣品打樣進度','報價管理'],products:['產品總覽'],data:['季度下單分析','實際出貨業績','資料來源與備份']};
 const format=(n:number)=>n.toLocaleString('en-US',{maximumFractionDigits:2});
 const uid=()=>newId();

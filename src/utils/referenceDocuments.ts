@@ -250,10 +250,10 @@ function quantityDocument(data:DocumentTemplates,o:OrderData,refs:CsqReference[]
   const colors=new Map<string,Colorway>();for(const color of item.colors){const prior=colors.get(color.colorCode);if(!prior)colors.set(color.colorCode,clone(color));else{prior.totalQuantity+=color.totalQuantity;for(const [size,qty] of Object.entries(color.quantitiesBySize))prior.quantitiesBySize[size]=(prior.quantitiesBySize[size]||0)+qty;}}
   const sizes=item.sizes.filter(size=>[...colors.values()].some(color=>(color.quantitiesBySize[size]||0)>0));const keys=orderedSizes(sizes.length?sizes:item.sizes),multiple=o.packingType==='MULTIPLE PACK',packs=multiple?multiplePackRows(o.items.filter(i=>i.itemNo===item.itemNo)):[];const totalCol=keys.length+3,last=totalCol;
   ws.columns=[{width:16},{width:32},...keys.map(()=>({width:11})),{width:14}];let r=1;
-  const full=(value:string,bold=false)=>{ws.mergeCells(r,1,r,last);const cell=ws.getCell(r,1);cell.value=value;cell.font={size:r===1?20:11,bold};cell.alignment={vertical:'middle',wrapText:true};ws.getRow(r).height=r===1?32:24;return r++;};
+  const full=(value:string,bold=false)=>{ws.mergeCells(r,1,r,last);const cell=ws.getCell(r,1);cell.value=value;cell.font={size:r===1?20:12,bold};cell.alignment={vertical:'middle',wrapText:true};ws.getRow(r).height=r===1?32:24;return r++;};
   full(COMPANY_ENGLISH,true);ws.getCell(1,1).alignment.horizontal='center';full('數量明細表',true);ws.getCell(2,1).alignment.horizontal='center';
   const edge={style:'thin' as const};
-  const infoCell=(start:number,end:number,value:string,bold=false,label=false)=>{if(end>start)ws.mergeCells(r,start,r,end);const cell=ws.getCell(r,start);cell.value=value;cell.font={size:11,bold};cell.alignment={vertical:'middle',horizontal:label?'center':'left',wrapText:true};cell.border={top:edge,bottom:edge,left:edge,right:edge};if(label)cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF0F3F2'}};return cell;};
+  const infoCell=(start:number,end:number,value:string,bold=false,label=false)=>{if(end>start)ws.mergeCells(r,start,r,end);const cell=ws.getCell(r,start);cell.value=value;cell.font={size:12,bold};cell.alignment={vertical:'middle',horizontal:label?'center':'left',wrapText:true};cell.border={top:edge,bottom:edge,left:edge,right:edge};if(label)cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF0F3F2'}};return cell;};
   const split=Math.max(2,Math.floor(last/2)); if(last>=4)ws.getColumn(split+1).width=18;
   const infoPair=(leftLabel:string,leftValue:string,rightLabel:string,rightValue:string)=>{ws.getRow(r).height=29;if(last>=4){infoCell(1,1,leftLabel,false,true);infoCell(2,split,leftValue);infoCell(split+1,split+1,rightLabel,false,true);infoCell(split+2,last,rightValue);}else{infoCell(1,1,leftLabel,false,true);infoCell(2,last,`${leftValue}　${rightLabel}${rightValue}`);}return r++;};
   const infoFull=(label:string,value:string)=>{ws.getRow(r).height=29;infoCell(1,1,label,false,true);infoCell(2,last,value);return r++;};
@@ -266,7 +266,7 @@ function quantityDocument(data:DocumentTemplates,o:OrderData,refs:CsqReference[]
   const pack=infoPair('數量：',`${item.totalQuantity.toLocaleString('en-US')} ${o.factoryQuantityUnit||'件'}`,'包裝方式：',packingChinese(o,true));const packCell=ws.getCell(pack,last>=4?split+2:2);packCell.font={...packCell.font,bold:true};packCell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFFF99'}};
   const antiCounterfeitRow=infoFull('防偽標：',o.requiresAntiCounterfeitLabel===true?'需要防偽標':o.requiresAntiCounterfeitLabel===false?'不需要防偽標':'待確認（請在訂單核對頁選擇）');
   const antiCounterfeitCell=ws.getCell(antiCounterfeitRow,2);antiCounterfeitCell.font={size:12,bold:true};if(o.requiresAntiCounterfeitLabel===true)antiCounterfeitCell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFFF99'}};
-  const tableRow=(values:ExcelJS.CellValue[],bold=false)=>{const row=ws.getRow(r++);row.values=values;row.height=25;row.eachCell(cell=>{cell.font={size:11,bold};cell.alignment={vertical:'middle',horizontal:'center',wrapText:true};cell.border={top:edge,bottom:edge,left:edge,right:edge};cell.numFmt='#,##0;-#,##0;"--"';});return row;};
+  const tableRow=(values:ExcelJS.CellValue[],bold=false)=>{const row=ws.getRow(r++);row.values=values;row.height=25;row.eachCell(cell=>{cell.font={size:12,bold};cell.alignment={vertical:'middle',horizontal:'center',wrapText:true};cell.border={top:edge,bottom:edge,left:edge,right:edge};cell.numFmt='#,##0;-#,##0;"--"';});return row;};
   const header=tableRow(['色碼','色名',...keys.map(size=>item.erpItemNo?sizeLabel(size):size),`合計（${o.factoryQuantityUnit||'件'}）`],true);header.eachCell(cell=>cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF0F3F2'}});
   if(item.erpItemNo){
    for(const label of ['尺寸','重量']){const source=s.cells.find(c=>text(c.v).trim()===label);if(!source)continue;const sourceSizes=s.cells.filter(c=>c.r===source.r-(label==='重量'?2:1)&&typeof c.v==='string'&&/\([SMLX]+\)/.test(c.v));tableRow([label,'',...keys.map(size=>{const col=sourceSizes.find(c=>text(c.v).includes(`(${size})`))?.c;return col?text(s.cells.find(c=>c.r===source.r&&c.c===col)?.v):'';}),'']);}
@@ -276,7 +276,7 @@ function quantityDocument(data:DocumentTemplates,o:OrderData,refs:CsqReference[]
    const name=[color.colorName,colorChinese(color,item.itemNo,o.poNumber,data,workspace?.productNotes[item.itemNo]),...kits.map(k=>`KIT: ${k}`)].filter(Boolean).join('\n');
    quantityRows.push(r);const row=tableRow([color.colorCode,name,...keys.map(size=>color.quantitiesBySize[size]||0),color.totalQuantity]);row.height=Math.max(25,name.split('\n').reduce((sum,line)=>sum+Math.max(1,Math.ceil(line.length/32)),0)*15+6);
    if(multiple){
-    for(const pack of details){const ratioRow=tableRow(['',`每包配比\n${pack.packs.toLocaleString('en-US')} 包 × ${pack.pieces} 件`,...keys.map(size=>pack.ratio[size]||0),pack.pieces]);ratioRow.height=34;ratioRow.eachCell(cell=>{cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF0F4F3'}};cell.font={size:10,color:{argb:'FF4B6864'}};});}
+    for(const pack of details){const ratioRow=tableRow(['',`每包配比\n${pack.packs.toLocaleString('en-US')} 包 × ${pack.pieces} 件`,...keys.map(size=>pack.ratio[size]||0),pack.pieces]);ratioRow.height=34;ratioRow.eachCell(cell=>{cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF0F4F3'}};cell.font={size:12,color:{argb:'FF4B6864'}};});}
     if(!details.length)tableRow(['','每包配比待確認',...keys.map(()=>''),'']);
    }
   }
@@ -389,3 +389,6 @@ function overviewDocument(data:DocumentTemplates,o:OrderData):ReferenceWorkbook{
  return {book,sources:[t.file+' / '+s.name]};
 }
 export function buildReferenceDocument(data:DocumentTemplates,kind:DocumentKind,o:OrderData,refs:CsqReference[]=[],erp:ErpSnapshot|null=null,workspace?:Workspace):ReferenceWorkbook{o=sizeVariantOrder(o);if((erp||workspace)&&kind!=='overview')o=withErpPiMaterials(o,erp,workspace);const result=kind==='pi'?piDocument(data,o):kind==='quantity'?quantityDocument(data,o,refs,workspace):kind==='overview'?overviewDocument(data,o):businessDocument(data,kind,o,refs,workspace);formatDocumentText(result.book);presentWorkbook(result.book);if(kind==='overview')for(const ws of result.book.worksheets)closeOuterBorder(ws,ws.rowCount,ws.columnCount);return result;}
+
+
+

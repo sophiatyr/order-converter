@@ -7,6 +7,7 @@ import {promisify} from 'node:util';
 import os from 'node:os';
 import {createNasSyncRelay} from './nas-sync-relay.mjs';
 import {exportCustomerBulk} from './customer-bulk-export.mjs';
+import {readTrackingExcelNative} from './tracking-excel-read.mjs';
 import {exportInternalTracking} from './internal-tracking-export.mjs';
 import {exportShippingNative} from './shipping-native-export.mjs';
 
@@ -56,6 +57,17 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if(url.pathname.startsWith('/api/nas-sync/')){await nasSyncRelay(request,response);return;}
+    if(url.pathname==='/api/local-tracking-read'){
+      if(request.method!=='POST'){sendJson(response,405,{error:'請使用回讀 Excel 按鈕。'});return;}
+      if(request.headers.origin&&request.headers.origin!==`http://${request.headers.host}`){sendJson(response,403,{error:'請從本機工作站回讀。'});return;}
+      if(request.headers['content-type']!=='application/octet-stream'){sendJson(response,415,{error:'請上傳 Excel 檔案。'});return;}
+      if(bulkExportBusy){sendJson(response,409,{error:'Excel 正在處理原表，請稍候。'});return;}
+      const chunks=[];let size=0;for await(const chunk of request){size+=chunk.length;if(size>20*1024*1024){sendJson(response,413,{error:'Excel 檔案不可超過 20 MB。'});return;}chunks.push(chunk);}
+      bulkExportBusy=true;
+      try{sendJson(response,200,await readTrackingExcelNative(projectRoot,Buffer.concat(chunks)));}
+      catch(e){sendJson(response,400,{error:e.message});}finally{bulkExportBusy=false;}
+      return;
+    }
     if(url.pathname==='/api/local-shipping-workbook'){
       if(request.method!=='POST'){sendJson(response,405,{error:'請使用出貨原表匯出按鈕。'});return;}
       if(request.headers.origin&&request.headers.origin!==`http://${request.headers.host}`){sendJson(response,403,{error:'請從本機工作站匯出。'});return;}
@@ -85,7 +97,7 @@ const server = http.createServer(async (request, response) => {
       if(bulkExportBusy){sendJson(response,409,{error:'正在匯出客戶原表，請稍候。'});return;}
       const chunks=[];let size=0;for await(const chunk of request){size+=chunk.length;if(size>10*1024*1024){sendJson(response,413,{error:'匯出資料過大，請縮小篩選範圍。'});return;}chunks.push(chunk);}
       bulkExportBusy=true;
-      try{const bytes=await exportCustomerBulk(projectRoot,JSON.parse(Buffer.concat(chunks).toString('utf8')));response.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="CSQ_Bulk_Status.xlsx"','Cache-Control':'no-store'});response.end(bytes);}
+      try{const payload=JSON.parse(Buffer.concat(chunks).toString('utf8')),bytes=await exportCustomerBulk(projectRoot,payload,payload.preview===true);if(payload.preview===true){sendJson(response,200,bytes);return;}response.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="CSQ_Bulk_Status.xlsx"','Cache-Control':'no-store'});response.end(bytes);}
       catch(e){sendJson(response,400,{error:e.message});}finally{bulkExportBusy=false;}
       return;
     }

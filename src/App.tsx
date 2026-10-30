@@ -1,3 +1,4 @@
+import {OrderOverview,defaultOrderOverviewFilters} from './components/OrderOverview';
 import {removeOrder,restoreRemovedOrder} from './utils/orderRemoval';
 import {saveFactoryText} from './utils/factoryText';
 import {OrderPicker} from './components/OrderPicker';
@@ -33,7 +34,7 @@ import {NasGate,type SharedSession} from './components/NasGate';
 
 const SAVED_KEY = 'SK_SAVED_UPLOADED_ORDER';
 const navigation=[...modules,['system','系統管理'] as const];
-type Page = 'review' | 'documents';
+type Page = 'overview' | 'review' | 'documents';
 export default function Root(){return <NasGate>{(shared,localSystem,localRole)=><App key={shared?.user.id||'local'} shared={shared} localSystem={localSystem} localRole={localRole}/>}</NasGate>;}
 function App({shared,localSystem,localRole}:{shared?:SharedSession;localSystem?:React.ReactNode;localRole?:SharedSession['user']['role']}) {
   const readOnly=shared?.user.role==='viewer'||localRole==='viewer';
@@ -41,7 +42,8 @@ function App({shared,localSystem,localRole}:{shared?:SharedSession;localSystem?:
     if(shared)return shared.workspace.orders[0]||null;
     try { const saved = JSON.parse(localStorage.getItem(SAVED_KEY) || 'null'); return saved?.poNumber && Array.isArray(saved.items) ? normalizeCsqOrder(saved) : null; } catch { return null; }
   });
-  const [page, setPage] = useState<Page>('review');
+  const [page, setPage] = useState<Page>('overview');
+  const [overviewFilters,setOverviewFilters]=useState(defaultOrderOverviewFilters);
   const [module, setModule] = useState<ModuleId|'system'>(shared?.preview?'system':'orders');
   const [workspace,setWorkspace]=useState<Workspace>(()=>{if(shared)return shared.workspace;try{const w=loadWorkspace(localStorage.getItem(WORKSPACE_KEY),order),mapping=localStorage.getItem('SK_PRODUCT_MAPPING_DB_V2');return mapping?{...w,productMappings:JSON.parse(mapping)}:w;}catch{return emptyWorkspace();}});
   const [workspaceRefs,setWorkspaceRefs]=useState<ReferenceSnapshot|null>(null);
@@ -186,7 +188,7 @@ function App({shared,localSystem,localRole}:{shared?:SharedSession;localSystem?:
       <div className="csq-brand csq-brand-cisalfa"><img className="csq-cisalfa-wordmark" src={`${import.meta.env.BASE_URL}branding/cisalfa-wordmark.svg`} alt="Cisalfa Sport"/><div className="csq-account-signature"><strong>CSQ<span>.</span></strong><span>ACCOUNT<br/>WORKSPACE</span></div></div>
       <div className="csq-sidebar-label">工作站功能</div>
       <nav aria-label="工作站導覽">
-        {navigation.map(([id,label],index)=>{const Icon=[ClipboardCheck,CalendarClock,Truck,FlaskConical,Database,BarChart3,Settings][index];return <button key={id} className={module===id?'active':''} onClick={()=>setModule(id)}><Icon size={18}/>{label}</button>;})}
+        {navigation.map(([id,label],index)=>{const Icon=[ClipboardCheck,CalendarClock,Truck,FlaskConical,Database,BarChart3,Settings][index];return <button key={id} className={module===id?'active':''} onClick={()=>{setModule(id);if(id==='orders'){setPage('overview');window.scrollTo(0,0);}}}><Icon size={18}/>{label}</button>;})}
       </nav>
       <div className="csq-sidebar-foot"><span><i />{shared?(shared.preview?'本機共用版測試':'NAS 共用工作站'):'本機工作站'}</span><p>{shared?(shared.preview?'測試資料獨立保存':'資料保存在 NAS 共用資料庫'):'文件在本機處理'}<br />{shared?(shared.preview?'不影響 NAS 正式資料':'同事共用最新作業資料'):'不使用外部 API'}</p><button onClick={() => setHelpOpen(true)}><HelpCircle size={16} />使用說明</button></div>
     </aside>
@@ -202,7 +204,9 @@ function App({shared,localSystem,localRole}:{shared?:SharedSession;localSystem?:
           {shared?shared.systemPanel:localSystem||<section className="csq-export-card"><h2>本機工作站</h2><p>這是離線作業版。帳戶管理請使用本機共用版測試，測試帳號不會影響 NAS 正式帳號。完整備份與資料來源仍在數據管理維護。</p><button className="desk-button" onClick={()=>setModule('data')}>前往數據管理</button></section>}
         </>:module==='orders'?<>
         <div className="csq-page-heading"><div><span className="csq-eyebrow">CSQ / ORDER DESK</span><h1>訂單作業</h1><p>匯入 PO、核對訂單、輸出文件；資料沿用到進度與出貨。</p></div><button className="csq-primary" onClick={() => setUploadOpen(true)}><Upload size={17} />匯入 PO</button></div>
-        <div className="desk-tabs"><button className={page==='review'?'active':''} onClick={()=>setPage('review')}>訂單核對</button><button className={page==='documents'?'active':''} onClick={()=>setPage('documents')}>訂單文件輸出</button></div>
+        <div className="desk-tabs"><button className={page==='overview'?'active':''} onClick={()=>setPage('overview')}>訂單總覽</button><button className={page==='review'?'active':''} onClick={()=>setPage('review')}>訂單核對</button><button className={page==='documents'?'active':''} onClick={()=>setPage('documents')}>訂單文件輸出</button></div>
+        <div hidden={page!=='overview'}><OrderOverview filters={overviewFilters} onFiltersChange={setOverviewFilters} workspace={workspace} references={workspaceRefs} erp={erpSnapshot} readOnly={readOnly} loading={!workspaceRefs&&!workspaceRefError} error={workspaceRefError} onOpen={value=>{updateOrder(value);setPage('review');window.scrollTo(0,0);}}/></div>
+        {page!=='overview'&&<>
         {(workspace.orders.length>0||Object.keys(workspace.removedOrders||{}).length>0)&&<OrderPicker orders={workspace.orders} removedOrders={Object.values(workspace.removedOrders||{})} onRemove={readOnly?undefined:removeSavedOrder} onRestore={readOnly?undefined:restoreSavedOrder} current={order} onSelect={updateOrder}/>}
         <div className="csq-steps" aria-label="作業流程"><span className={order ? 'done' : 'current'}>{order ? <Check size={14} /> : <b>1</b>}匯入 PO</span><i /><span className={page === 'review' && order ? 'current' : ''}><b>2</b>核對訂單</span><i /><span className={page === 'documents' ? 'current' : ''}><b>3</b>輸出文件</span></div>
         {!order ? <section className="csq-empty"><div className="csq-empty-icon"><FileText size={34} strokeWidth={1.4} /></div><h2>從一份 CSQ PO 開始</h2><p>支援 PDF、掃描圖片、Excel 與 CSV。<br />匯入後先核對資料，再產生 P/I 與工廠採購單。</p><button className="csq-primary" onClick={() => setUploadOpen(true)}>選擇 PO 檔案<ArrowRight size={16} /></button><small>目前沒有訂單。範例不會自動載入。</small></section> : <>
@@ -222,7 +226,8 @@ function App({shared,localSystem,localRole}:{shared?:SharedSession;localSystem?:
             {previewWorkbook?.error?<p className="csq-alert">{previewWorkbook.error}{preview==='factory'&&<button className="desk-button" disabled={erpBusy||materialBusy} onClick={()=>void importErp()}>帶入工廠與採購價</button>}</p>:previewWorkbook&&'book' in previewWorkbook?<WorkbookPreview book={previewWorkbook.book} sources={previewWorkbook.sources}/>:<p className="desk-hint">{templateError||'正在讀取本機文件範本…'}</p>}
           </>}
         </>}
-        </>:<WorkspaceModules onRefreshErp={()=>void refreshMaterials()} erpBusy={materialBusy} erpStatus={materialStatus} sharedMode={!!shared} key={module} module={module} workspace={workspace} references={workspaceRefs} erp={erpSnapshot} onChange={saveWorkspace} onRestore={restoreWorkspace} onOpenOrder={value=>{updateOrder(value);setModule('orders');}} onDatabase={()=>setDatabaseOpen(true)} onDownload={showDownload} onRefresh={()=>void refreshWorkspaceRefs()} referenceError={workspaceRefError}/>}
+        </>}
+        </>:<WorkspaceModules onRefreshErp={()=>void refreshMaterials()} erpBusy={materialBusy} erpStatus={materialStatus} sharedMode={!!shared} key={module} module={module} workspace={workspace} references={workspaceRefs} erp={erpSnapshot} onChange={saveWorkspace} onRestore={restoreWorkspace} onOpenOrder={value=>{updateOrder(value);setModule('orders');setPage('review');}} onDatabase={()=>setDatabaseOpen(true)} onDownload={showDownload} onRefresh={()=>void refreshWorkspaceRefs()} referenceError={workspaceRefError}/>}
         </fieldset></ReadOnlyView>
         <footer className="csq-footer"><span>CSQ 工作站 · {shared?(shared.preview?'本機共用版測試':'NAS 共用版'):'單機版'} · 版本 {__CSQ_RELEASE__.version}</span><span>Account CSQ / Sports Kite</span></footer>
       </main>

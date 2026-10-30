@@ -1,6 +1,6 @@
 import {lcForLine} from './shipmentLc';
 import {trackingQuantityUnit} from './trackingUnits';
-import {shipmentSelectionIssues} from './shipmentSelection';
+import {shipmentSelectionIssues,shipmentQuantityDifferences,quantityVarianceReviewed} from './shipmentSelection';
 import type {ClassificationOption} from './classificationOptions';
 import {pricingCode,sizeVariantOrder} from './sizeVariants';
 import {verifiedTrackingStyle} from './verifiedTrackingStyles';
@@ -71,9 +71,10 @@ export function trackingRows(w:Workspace,refs:ReferenceSnapshot|null,erp?:ErpSna
  return normalizeTrackingFactories([...rows.values()].map(r=>{const synced=syncTracking(r,w),order=w.orders.find(o=>o.poNumber===r.poNumber&&o.piNumber===r.scNumber),series=cleanSeries(order?.series||r.series||r.internalFields?.E||r.brand),brand=canonicalBrand(order?.brand||r.internalFields?.D||brandOf(series));return {...synced,unit:trackingQuantityUnit(synced.unit),brand,series,internalFields:{...synced.internalFields,D:brand,E:series,C:synced.season}};}),erp);
 }
 export function shipmentQuantity(s:ShipmentLine){return Object.values(s.sizes).reduce((a,b)=>a+b,0);}
-export function newShipment(o:OrderData,id:string):Shipment{return {id,poNumber:o.poNumber,scNumber:o.piNumber,customer:o.customerName,address:o.deliveryAddress||o.customerAddress,invoiceNo:`${o.piNumber}-${id.slice(-6)}`,date:'',vessel:'',container:'',fromPort:o.port,toPort:'',remarks:'',confirmed:false,lines:o.items.flatMap(i=>i.colors.map(c=>({id:`${i.id}:${c.id}`,itemNo:i.itemNo,description:i.description||i.styleName,color:`${c.colorCode} ${c.colorName}`,unit:i.factoryProduct?.unit==='雙'||i.itemNo==='ABCRA07'?'PAIRS':'PCS',planned:c.totalQuantity,sizes:Object.fromEntries(i.sizes.map(size=>[size,0])),unitPriceUSD:i.unitPriceUSD,supplier:i.factoryProduct?.supplier||o.factorySupplier,cartons:0,netWeight:0,grossWeight:0,cbm:0}))) };}
+export function newShipment(o:OrderData,id:string):Shipment{return {id,poNumber:o.poNumber,scNumber:o.piNumber,customer:o.customerName,address:o.deliveryAddress||o.customerAddress,invoiceNo:o.piNumber,date:'',vessel:'',container:'',fromPort:o.port,toPort:'',remarks:'',confirmed:false,lines:o.items.flatMap(i=>i.colors.map(c=>({id:`${i.id}:${c.id}`,itemNo:i.itemNo,description:i.description||i.styleName,color:`${c.colorCode} ${c.colorName}`,unit:i.factoryProduct?.unit==='雙'||i.itemNo==='ABCRA07'?'PAIRS':'PCS',planned:c.totalQuantity,sizes:Object.fromEntries(i.sizes.map(size=>[size,0])),unitPriceUSD:i.unitPriceUSD,supplier:i.factoryProduct?.supplier||o.factorySupplier,cartons:0,netWeight:0,grossWeight:0,cbm:0}))) };}
 export function shipmentIssues(s:Shipment,all:Shipment[]=[],order?:OrderData){
- const issues:string[]=[...shipmentSelectionIssues(s)];
+ const issues:string[]=[...shipmentSelectionIssues(s)],quantitiesReviewed=quantityVarianceReviewed(s,all,order);
+ if(!s.confirmed&&shipmentQuantityDifferences(s,all,order).length&&!quantitiesReviewed)issues.push('實際數量有溢裝或短裝，請先核對並確認實際差異。');
  if(s.factoryNotice?.lcEntries)try{for(const l of s.lines.filter(l=>shipmentQuantity(l)>0))lcForLine(s,l.id);}catch(e){issues.push(e instanceof Error?e.message:String(e));}
  if(s.lines.some(l=>l.packingRows?.length))issues.push(...packingIssues(s));
  if(!/^\d{4}-\d{2}-\d{2}$/.test(s.date)||Number.isNaN(Date.parse(s.date))||new Date(s.date).toISOString().slice(0,10)!==s.date)issues.push('請填有效的實際出貨日期');
@@ -86,7 +87,7 @@ export function shipmentIssues(s:Shipment,all:Shipment[]=[],order?:OrderData){
   if(shipmentQuantity(l)===0)continue;
   if(!Number.isFinite(l.unitPriceUSD)||l.unitPriceUSD<=0)issues.push(`${l.itemNo}：客戶售價待確認`);
   if(!Number.isInteger(l.cartons)||l.cartons<=0||!Number.isFinite(l.netWeight)||l.netWeight<=0||!Number.isFinite(l.grossWeight)||l.grossWeight<l.netWeight||!Number.isFinite(l.cbm)||l.cbm<=0)issues.push(`${l.itemNo} / ${l.color}：請核對箱數、淨重、毛重與材積`);
-  if(order){const colors=order.items.filter(i=>i.itemNo===l.itemNo).flatMap(i=>i.colors).filter(c=>`${c.colorCode} ${c.colorName}`===l.color);for(const size of Object.keys(l.sizes)){const shipped=all.filter(x=>x.id!==s.id&&x.confirmed&&x.poNumber===s.poNumber).flatMap(x=>x.lines).filter(x=>x.itemNo===l.itemNo&&x.color===l.color).reduce((n,x)=>n+(x.sizes[size]||0),0);const current=s.lines.filter(x=>x.itemNo===l.itemNo&&x.color===l.color).reduce((n,x)=>n+(x.sizes[size]||0),0);if(current+shipped>colors.reduce((n,c)=>n+(c.quantitiesBySize[size]||0),0))issues.push(`${l.itemNo} / ${l.color} / ${size}：累計出貨超過 PO 數量`);}}
+  if(order){const colors=order.items.filter(i=>i.itemNo===l.itemNo).flatMap(i=>i.colors).filter(c=>`${c.colorCode} ${c.colorName}`===l.color);for(const size of Object.keys(l.sizes)){const shipped=all.filter(x=>x.id!==s.id&&x.confirmed&&x.poNumber===s.poNumber).flatMap(x=>x.lines).filter(x=>x.itemNo===l.itemNo&&x.color===l.color).reduce((n,x)=>n+(x.sizes[size]||0),0);const current=s.lines.filter(x=>x.itemNo===l.itemNo&&x.color===l.color).reduce((n,x)=>n+(x.sizes[size]||0),0);if(!quantitiesReviewed&&current+shipped>colors.reduce((n,c)=>n+(c.quantitiesBySize[size]||0),0))issues.push(`${l.itemNo} / ${l.color} / ${size}：累計出貨超過 PO 數量`);}}
  }
  return [...new Set(issues)];
 }
@@ -97,3 +98,6 @@ export function analytics(w:Workspace){
  for(const s of w.shipments.filter(x=>x.confirmed)){const quarter=quarterOf(s.date),order=w.orders.find(o=>o.poNumber===s.poNumber),season=order?.season||'季度待填',customer=order?.orderingCompany||s.customer,key=`${season}|${quarter}|${customer}`;const r=shipments.get(key)||{quarter,season,customer,quantity:0,amount:0,count:0};r.count++;r.quantity+=s.lines.reduce((n,l)=>n+shipmentQuantity(l),0);r.amount+=s.lines.reduce((n,l)=>n+shipmentQuantity(l)*l.unitPriceUSD,0);shipments.set(key,r);}
  return {orders:[...orders.values()],shipments:[...shipments.values()]};
 }
+
+
+

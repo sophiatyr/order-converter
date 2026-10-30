@@ -1,3 +1,4 @@
+import {setOrderLc} from './shipmentLc';
 import type {OrderData} from '../types/order';
 import {shipmentQuantity,type Shipment,type Workspace,type TrackingRecord} from './workspace';
 import {activeTrackingRows} from './trackingAutomation';
@@ -6,17 +7,19 @@ export const shippingSteps=['待出貨追蹤','預估清單與 L/C','訂艙與�
 export interface ShippingEstimate {lineId:string;quantity:number;cartons:number;grossWeight:number;cbm:number}
 export function shipmentEstimates(s:Shipment):ShippingEstimate[]{try{const p=JSON.parse(s.factoryNotice?.estimateLines||'[]');return Array.isArray(p)?p.filter(e=>s.lines.some(l=>l.id===e.lineId)&&['quantity','cartons','grossWeight','cbm'].every(k=>Number.isFinite(e[k])&&e[k]>=0)):[];}catch{return [];}}
 export function updateShippingLc(w:Workspace,s:Shipment,value:string,rows:TrackingRecord[]):Workspace{
- const tracking={...w.tracking};for(const r of rows.filter(r=>r.poNumber===s.poNumber&&r.scNumber===s.scNumber)){tracking[r.id]={...tracking[r.id],bulk:{...tracking[r.id]?.bulk,shipmentLc:value}};}
- return {...w,tracking,shipments:w.shipments.map(x=>x.id===s.id?{...x,factoryNotice:{...x.factoryNotice,lcNumber:value}}:x)};
+ return setOrderLc(w,rows,s.poNumber,s.scNumber,value);
 }
 export function pendingShipmentRows(rows:TrackingRecord[],completed=false){const active=activeTrackingRows(rows),ids=new Set(active.map(r=>r.id));return completed?rows.filter(r=>!ids.has(r.id)):active;}
 const cents=(n:number)=>Math.round((n+Number.EPSILON)*100)/100;
+export function shippingInvoiceCargoAmounts(s:Shipment,company:string){
+ const gross=cents(s.lines.reduce((n,l)=>n+cents(shipmentQuantity(l)*l.unitPriceUSD),0)),discount=/MEDICO/i.test(company)?cents(gross*.01):0;return {gross,discount,sales:cents(gross-discount)};
+}
 export function shippingInvoiceAmounts(s:Shipment,o:OrderData,w:Workspace){
- const gross=cents(s.lines.reduce((n,l)=>n+cents(shipmentQuantity(l)*l.unitPriceUSD),0)),company=(o.orderingCompany||o.customerName).toUpperCase(),medico=company.includes('MEDICO'),hasDeposit=medico||company.includes('PREMIUM');
+ const company=(o.orderingCompany||o.customerName).toUpperCase(),{gross,discount}=shippingInvoiceCargoAmounts(s,company),medico=company.includes('MEDICO'),hasDeposit=medico||company.includes('PREMIUM');
  const original=Number(s.factoryNotice?.originalPoAmount||o.totalAmountUSD),depositTotal=hasDeposit?cents(original*.3):0;
  const used=cents(w.shipments.filter(x=>x.id!==s.id&&x.confirmed&&x.poNumber===s.poNumber&&x.scNumber===s.scNumber).reduce((n,x)=>n+Number(x.factoryNotice?.depositApplied||0),0));
  const available=Math.max(0,cents(depositTotal-used)),specified=s.factoryNotice?.depositApplied;
- const discount=medico?cents(gross*.01):0,deposit=hasDeposit?(specified!==undefined&&specified!==''?Number(specified):Math.min(available,cents(gross-discount))):0;
+ const deposit=hasDeposit?(specified!==undefined&&specified!==''?Number(specified):Math.min(available,cents(gross-discount))):0;
  if(!Number.isFinite(original)||original<0||!Number.isFinite(deposit)||deposit<0||deposit>available+.001)throw Error('訂金扣抵超過原始 PO 訂金餘額，請核對歷次出貨。');
  if(gross-deposit-discount<-.001)throw Error('本批訂金扣抵加折扣超過發票金額，請調整本批扣抵金額。');
  return {gross,original,depositTotal,depositUsed:used,depositAvailable:available,deposit,discount,net:cents(gross-deposit-discount)};

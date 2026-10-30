@@ -1,14 +1,31 @@
 // src/utils/shipmentLc.ts
+function normalize(entries) {
+  const result = [];
+  for (const raw of entries) {
+    const e = { ...raw, number: raw.number.trim(), date: raw.date.trim(), bank: raw.bank, lineIds: [...new Set(raw.lineIds)] };
+    if (!e.number && !e.date && !e.bank.trim()) continue;
+    const existing = e.number && result.find((x) => x.number === e.number && (!x.date || !e.date || x.date === e.date) && (!x.bank || !e.bank || x.bank === e.bank));
+    if (existing) {
+      existing.date ||= e.date;
+      existing.bank ||= e.bank;
+      existing.lineIds = [.../* @__PURE__ */ new Set([...existing.lineIds, ...e.lineIds])];
+    } else result.push(e);
+  }
+  return result;
+}
 function shipmentLcs(s) {
   if (s.factoryNotice?.lcEntries) {
     const entries = JSON.parse(s.factoryNotice.lcEntries);
     if (!Array.isArray(entries) || entries.some((e) => typeof e.number !== "string" || typeof e.date !== "string" || typeof e.bank !== "string" || !Array.isArray(e.lineIds) || e.lineIds.some((id) => typeof id !== "string"))) throw Error("L/C \u5C0D\u61C9\u8CC7\u6599\u683C\u5F0F\u4E0D\u7B26");
-    return entries;
+    return normalize(entries);
   }
   return s.factoryNotice?.lcNumber ? [{ number: s.factoryNotice.lcNumber, date: s.factoryNotice.lcIssueDate || "", bank: s.factoryNotice.lcIssueBank || "", lineIds: s.lines.map((l) => l.id) }] : [];
 }
 function lcForLine(s, lineId) {
-  const entries = shipmentLcs(s).filter((e) => e.number.trim()), matches = entries.filter((e) => e.lineIds.includes(lineId));
+  const entries = shipmentLcs(s).filter((e) => e.number.trim());
+  if (entries.length > 1 && !s.confirmed) throw Error("\u6BCF\u5F35 PO \u53EA\u80FD\u5C0D\u61C9\u4E00\u500B L/C\uFF0C\u8ACB\u5728\u672C\u6AC3 L/C \u7D71\u4E00\u865F\u78BC\u3002");
+  if (entries.length === 1) return entries[0].number;
+  const matches = entries.filter((e) => e.lineIds.includes(lineId));
   if (matches.length > 1 || entries.length > 0 && matches.length !== 1) throw Error("\u8ACB\u9010\u6B3E\u8272\u78BA\u8A8D L/C \u5C0D\u61C9\uFF0C\u6BCF\u6B3E\u8272\u61C9\u5C0D\u61C9\u4E00\u5F35 L/C\u3002");
   return matches[0]?.number || "";
 }
@@ -20,10 +37,13 @@ function trackingQuantityUnit(value) {
 }
 
 // src/utils/shipmentSelection.ts
-function shipmentSelectionIssues(s) {
+function actualKey(s) {
+  return JSON.stringify([s.factoryNotice?.plannedSelection || "", s.lines.map((l) => [l.id, l.itemNo, l.color, Object.entries(l.sizes).sort(([a], [b]) => a.localeCompare(b))]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))]);
+}
+function shipmentSelectionIssues(s, allowVariance = false) {
   if (!s.factoryNotice?.plannedSelection) return [];
   try {
-    const selected = JSON.parse(s.factoryNotice.plannedSelection), issues = [];
+    const selected = JSON.parse(s.factoryNotice.plannedSelection), issues = [], reviewed = s.factoryNotice?.quantityVarianceActual === actualKey(s);
     if (!selected || typeof selected !== "object" || Array.isArray(selected)) throw Error();
     for (const l of s.lines) {
       const sizes = selected[l.id];
@@ -31,12 +51,29 @@ function shipmentSelectionIssues(s) {
         issues.push(`${l.itemNo}\uFF1A\u672C\u6B21\u9078\u53D6\u6578\u91CF\u7121\u6548`);
         continue;
       }
-      for (const [size, q] of Object.entries(l.sizes)) if (q > (sizes[size] || 0)) issues.push(`${l.itemNo} / ${l.color} / ${size}\uFF1A\u5BE6\u969B\u88DD\u7BB1\u8D85\u904E\u672C\u6B21\u9078\u53D6\u91CF`);
+      for (const [size, q] of Object.entries(l.sizes)) if (q > (sizes[size] || 0) && !allowVariance && !reviewed) issues.push(`${l.itemNo} / ${l.color} / ${size}\uFF1A\u5BE6\u969B\u88DD\u7BB1\u8D85\u904E\u672C\u6B21\u9078\u53D6\u91CF\uFF0C\u8ACB\u6838\u5C0D\u5BE6\u969B\u5DEE\u7570`);
     }
     return issues;
   } catch {
     return ["\u672C\u6B21\u51FA\u8CA8\u6B3E\u8272\u9078\u53D6\u8CC7\u6599\u683C\u5F0F\u4E0D\u7B26"];
   }
+}
+function shipmentQuantityDifferences(s, all, order) {
+  const selection = JSON.parse(s.factoryNotice?.plannedSelection || "{}");
+  return s.lines.flatMap((l) => {
+    const colors = order?.items.filter((i) => i.itemNo === l.itemNo).flatMap((i) => i.colors).filter((c) => `${c.colorCode} ${c.colorName}`.trim() === l.color.trim());
+    const prior = all.filter((x) => x.id !== s.id && x.confirmed && x.poNumber === s.poNumber && x.scNumber === s.scNumber).flatMap((x) => x.lines).filter((x) => x.itemNo === l.itemNo && x.color === l.color);
+    return [.../* @__PURE__ */ new Set([...Object.keys(l.sizes), ...Object.keys(selection[l.id] || {})])].sort().flatMap((size) => {
+      const actual = l.sizes[size] || 0, previous = prior.reduce((n, x) => n + (x.sizes[size] || 0), 0), po = colors?.length && colors.every((c) => !!c.quantitiesBySize) ? colors.reduce((n, c) => n + (c.quantitiesBySize[size] || 0), 0) : null, planned = selection[l.id]?.[size] ?? (po === null ? null : Math.max(0, po - previous)), delta = planned === null ? null : actual - planned;
+      return delta !== null && delta !== 0 || po !== null && previous + actual > po ? [{ lineId: l.id, po: s.poNumber, style: l.itemNo, color: l.color, size, ordered: po, previous, planned, actual, delta, excess: po === null ? 0 : Math.max(0, previous + actual - po) }] : [];
+    });
+  });
+}
+function contextKey(s, all, order) {
+  return JSON.stringify([actualKey(s), shipmentQuantityDifferences(s, all, order)]);
+}
+function quantityVarianceReviewed(s, all, order) {
+  return s.factoryNotice?.quantityVarianceContext === contextKey(s, all, order) && s.factoryNotice?.quantityVarianceActual === actualKey(s);
 }
 
 // src/utils/sizeVariants.ts
@@ -1121,10 +1158,11 @@ function syncTracking(r, w) {
   const shipments = w.shipments.filter((s) => s.confirmed && s.poNumber === r.poNumber && s.scNumber === r.scNumber && s.lines.some((l) => shipmentStyleQuantity(l, r.itemNo, order) > 0)).sort((a, b) => a.date.localeCompare(b.date));
   const lines = shipments.flatMap((s) => s.lines.filter((l) => shipmentStyleQuantity(l, r.itemNo, order) > 0));
   const qty = lines.reduce((n, l) => n + shipmentStyleQuantity(l, r.itemNo, order), 0);
+  const expected = order ? poStyleItems(order, r.itemNo) : [], sizePlan = expected.flatMap((i) => i.colors.map((c) => ({ color: (c.colorCode + " " + c.colorName).trim(), sizes: c.quantitiesBySize || {}, total: c.totalQuantity }))), sizeKnown = sizePlan.length > 0 && sizePlan.every((p) => Object.values(p.sizes).reduce((n, q) => n + q, 0) === p.total), completed = sizeKnown ? sizePlan.every((p) => Object.entries(p.sizes).every(([size, q]) => lines.filter((l) => l.color.trim() === p.color).reduce((n, l) => n + (l.sizes[size] || 0), 0) >= q)) : qty >= r.quantity;
   if (qty > 0) {
     const s = shipments.at(-1);
-    bulk.shipmentStatus = qty >= r.quantity ? "SHIPPED" : "PLANNED";
-    bulk.shipmentDate = qty >= r.quantity ? s.date : bulk.shipmentPlannedDate || "";
+    bulk.shipmentStatus = completed ? "SHIPPED" : "PLANNED";
+    bulk.shipmentDate = completed ? s.date : bulk.shipmentPlannedDate || "";
     fields.AK = s.date;
     fields.AO = [...new Set(shipments.map((s2) => s2.vessel).filter(Boolean))].join(" / ");
     fields.AP = String(lines.reduce((n, l) => n + l.cbm, 0));
@@ -1134,7 +1172,7 @@ function syncTracking(r, w) {
     bulk.shipmentDate = bulk.shipmentPlannedDate || "";
   }
   if (fields._shipmentClosed === "Y") bulk.shipmentStatus = "SHIPPED";
-  return { ...r, season: order?.season || r.season, internalFields: fields, bulk, status: fields._shipmentClosed === "Y" ? "\u5DF2\u51FA\u8CA8" : qty > 0 ? qty >= r.quantity ? "\u5DF2\u51FA\u8CA8" : "\u90E8\u5206\u51FA\u8CA8" : r.status === "\u5DF2\u51FA\u8CA8" || r.status === "\u90E8\u5206\u51FA\u8CA8" ? "\u5C1A\u672A\u51FA\u8CA8" : r.status, shippedQuantity: qty };
+  return { ...r, season: order?.season || r.season, internalFields: fields, bulk, status: fields._shipmentClosed === "Y" ? "\u5DF2\u51FA\u8CA8" : qty > 0 ? completed ? "\u5DF2\u51FA\u8CA8" : "\u90E8\u5206\u51FA\u8CA8" : r.status === "\u5DF2\u51FA\u8CA8" || r.status === "\u90E8\u5206\u51FA\u8CA8" ? "\u5C1A\u672A\u51FA\u8CA8" : r.status, shippedQuantity: qty };
 }
 
 // src/utils/factoryDirectory.ts
@@ -1289,10 +1327,11 @@ function shipmentQuantity(s) {
   return Object.values(s.sizes).reduce((a, b) => a + b, 0);
 }
 function newShipment(o, id) {
-  return { id, poNumber: o.poNumber, scNumber: o.piNumber, customer: o.customerName, address: o.deliveryAddress || o.customerAddress, invoiceNo: `${o.piNumber}-${id.slice(-6)}`, date: "", vessel: "", container: "", fromPort: o.port, toPort: "", remarks: "", confirmed: false, lines: o.items.flatMap((i) => i.colors.map((c) => ({ id: `${i.id}:${c.id}`, itemNo: i.itemNo, description: i.description || i.styleName, color: `${c.colorCode} ${c.colorName}`, unit: i.factoryProduct?.unit === "\u96D9" || i.itemNo === "ABCRA07" ? "PAIRS" : "PCS", planned: c.totalQuantity, sizes: Object.fromEntries(i.sizes.map((size) => [size, 0])), unitPriceUSD: i.unitPriceUSD, supplier: i.factoryProduct?.supplier || o.factorySupplier, cartons: 0, netWeight: 0, grossWeight: 0, cbm: 0 }))) };
+  return { id, poNumber: o.poNumber, scNumber: o.piNumber, customer: o.customerName, address: o.deliveryAddress || o.customerAddress, invoiceNo: o.piNumber, date: "", vessel: "", container: "", fromPort: o.port, toPort: "", remarks: "", confirmed: false, lines: o.items.flatMap((i) => i.colors.map((c) => ({ id: `${i.id}:${c.id}`, itemNo: i.itemNo, description: i.description || i.styleName, color: `${c.colorCode} ${c.colorName}`, unit: i.factoryProduct?.unit === "\u96D9" || i.itemNo === "ABCRA07" ? "PAIRS" : "PCS", planned: c.totalQuantity, sizes: Object.fromEntries(i.sizes.map((size) => [size, 0])), unitPriceUSD: i.unitPriceUSD, supplier: i.factoryProduct?.supplier || o.factorySupplier, cartons: 0, netWeight: 0, grossWeight: 0, cbm: 0 }))) };
 }
 function shipmentIssues(s, all = [], order) {
-  const issues = [...shipmentSelectionIssues(s)];
+  const issues = [...shipmentSelectionIssues(s)], quantitiesReviewed = quantityVarianceReviewed(s, all, order);
+  if (!s.confirmed && shipmentQuantityDifferences(s, all, order).length && !quantitiesReviewed) issues.push("\u5BE6\u969B\u6578\u91CF\u6709\u6EA2\u88DD\u6216\u77ED\u88DD\uFF0C\u8ACB\u5148\u6838\u5C0D\u4E26\u78BA\u8A8D\u5BE6\u969B\u5DEE\u7570\u3002");
   if (s.factoryNotice?.lcEntries) try {
     for (const l of s.lines.filter((l2) => shipmentQuantity(l2) > 0)) lcForLine(s, l.id);
   } catch (e) {
@@ -1314,7 +1353,7 @@ function shipmentIssues(s, all = [], order) {
       for (const size of Object.keys(l.sizes)) {
         const shipped = all.filter((x) => x.id !== s.id && x.confirmed && x.poNumber === s.poNumber).flatMap((x) => x.lines).filter((x) => x.itemNo === l.itemNo && x.color === l.color).reduce((n, x) => n + (x.sizes[size] || 0), 0);
         const current = s.lines.filter((x) => x.itemNo === l.itemNo && x.color === l.color).reduce((n, x) => n + (x.sizes[size] || 0), 0);
-        if (current + shipped > colors.reduce((n, c) => n + (c.quantitiesBySize[size] || 0), 0)) issues.push(`${l.itemNo} / ${l.color} / ${size}\uFF1A\u7D2F\u8A08\u51FA\u8CA8\u8D85\u904E PO \u6578\u91CF`);
+        if (!quantitiesReviewed && current + shipped > colors.reduce((n, c) => n + (c.quantitiesBySize[size] || 0), 0)) issues.push(`${l.itemNo} / ${l.color} / ${size}\uFF1A\u7D2F\u8A08\u51FA\u8CA8\u8D85\u904E PO \u6578\u91CF`);
       }
     }
   }

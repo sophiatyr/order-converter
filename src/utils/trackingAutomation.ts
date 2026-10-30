@@ -34,11 +34,12 @@ export function syncTracking(r:TrackingRecord,w:Workspace):TrackingRecord{
  if(!Object.hasOwn(bulk,'ppsStatus')&&fields.AD&&daysToFactory(fields.AD)!==null){bulk.ppsStatus='APPROVED';bulk.ppsApprovalDate=fields.AD;bulk.ppsDate=bulk.ppsDate||fields.AC||'';}
  const shipments=w.shipments.filter(s=>s.confirmed&&s.poNumber===r.poNumber&&s.scNumber===r.scNumber&&s.lines.some(l=>shipmentStyleQuantity(l,r.itemNo,order)>0)).sort((a,b)=>a.date.localeCompare(b.date));
  const lines=shipments.flatMap(s=>s.lines.filter(l=>shipmentStyleQuantity(l,r.itemNo,order)>0));const qty=lines.reduce((n,l)=>n+shipmentStyleQuantity(l,r.itemNo,order),0);
- if(qty>0){const s=shipments.at(-1)!;bulk.shipmentStatus=qty>=r.quantity?'SHIPPED':'PLANNED';bulk.shipmentDate=qty>=r.quantity?s.date:bulk.shipmentPlannedDate||'';fields.AK=s.date;fields.AO=[...new Set(shipments.map(s=>s.vessel).filter(Boolean))].join(' / ');fields.AP=String(lines.reduce((n,l)=>n+l.cbm,0));fields.AQ=shipments.map(s=>s.invoiceNo).join(' / ');}
+ const expected=order?poStyleItems(order,r.itemNo):[],sizePlan=expected.flatMap(i=>i.colors.map(c=>({color:(c.colorCode+' '+c.colorName).trim(),sizes:c.quantitiesBySize||{},total:c.totalQuantity}))),sizeKnown=sizePlan.length>0&&sizePlan.every(p=>Object.values(p.sizes).reduce((n,q)=>n+q,0)===p.total),completed=sizeKnown?sizePlan.every(p=>Object.entries(p.sizes).every(([size,q])=>lines.filter(l=>l.color.trim()===p.color).reduce((n,l)=>n+(l.sizes[size]||0),0)>=q)):qty>=r.quantity;
+ if(qty>0){const s=shipments.at(-1)!;bulk.shipmentStatus=completed?'SHIPPED':'PLANNED';bulk.shipmentDate=completed?s.date:bulk.shipmentPlannedDate||'';fields.AK=s.date;fields.AO=[...new Set(shipments.map(s=>s.vessel).filter(Boolean))].join(' / ');fields.AP=String(lines.reduce((n,l)=>n+l.cbm,0));fields.AQ=shipments.map(s=>s.invoiceNo).join(' / ');}
  else if(r.season==='SS27'||order){bulk.shipmentStatus='PLANNED';bulk.shipmentDate=bulk.shipmentPlannedDate||'';}
  if(fields._shipmentClosed==='Y')bulk.shipmentStatus='SHIPPED';
  // An automatic link is recalculated each time; reverting a shipment to draft removes it.
- return {...r,season:order?.season||r.season,internalFields:fields,bulk,status:fields._shipmentClosed==='Y'?'已出貨':qty>0?(qty>=r.quantity?'已出貨':'部分出貨'):r.status==='已出貨'||r.status==='部分出貨'?'尚未出貨':r.status,shippedQuantity:qty};
+ return {...r,season:order?.season||r.season,internalFields:fields,bulk,status:fields._shipmentClosed==='Y'?'已出貨':qty>0?(completed?'已出貨':'部分出貨'):r.status==='已出貨'||r.status==='部分出貨'?'尚未出貨':r.status,shippedQuantity:qty};
 }
 export function trackingTargets(rows:TrackingRecord[],scope:'style'|'order'|'filter',query:string,selected:string[]=[]){
  if(scope!=='filter'&&!query.trim()&&!selected.length)return [];
@@ -62,3 +63,5 @@ export function applyTrackingStage(w:Workspace,rows:TrackingRecord[],phase:strin
  }
  return {...w,tracking};
 }
+
+
