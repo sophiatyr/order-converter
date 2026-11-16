@@ -33,6 +33,7 @@ export function changeContainerSelection(s:Shipment,o:OrderData,all:Shipment[],l
 }
 export function updateContainerCommon(w:Workspace,s:Shipment,key:string,value:string,meta=false):Workspace{
  const ids=new Set(containerMembers(s,w.shipments).filter(x=>!x.confirmed).map(x=>x.id));
+ if(!meta&&key==='customer')return {...w,shipments:w.shipments.map(x=>{if(!ids.has(x.id))return x;const f:Record<string,string>={...x.factoryNotice,customerDocumentsExported:''};if(x.customer!==value){delete f.shippingMarks;delete f.shippingMarksCustomer;}return {...x,customer:value,factoryNotice:f};})};
  return {...w,shipments:w.shipments.map(x=>!ids.has(x.id)?x:meta?{...x,factoryNotice:{...x.factoryNotice,[key]:value,customerDocumentsExported:''}}:{...x,[key]:value,factoryNotice:{...x.factoryNotice,customerDocumentsExported:''}})};
 }
 export function deleteContainerBatch(w:Workspace,s:Shipment,at=new Date().toISOString()):Workspace{
